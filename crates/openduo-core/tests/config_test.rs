@@ -1,3 +1,4 @@
+use openduo_core::auth::AuthHeaders;
 use openduo_core::config::Config;
 use serial_test::serial;
 
@@ -18,4 +19,21 @@ fn test_config_missing_env_fails() {
     std::env::remove_var("GITLAB_PAT");
     let result = Config::from_env();
     assert!(result.is_err());
+}
+
+#[test]
+fn test_auth_headers_contain_pat() {
+    let headers = AuthHeaders::new("glpat-abc123");
+    let map = headers.to_header_map().unwrap();
+    assert_eq!(
+        map.get("PRIVATE-TOKEN").unwrap(),
+        "glpat-abc123"
+    );
+}
+
+#[test]
+fn test_auth_headers_contain_content_type() {
+    let headers = AuthHeaders::new("glpat-abc123");
+    let map = headers.to_header_map().unwrap();
+    assert!(map.contains_key("Content-Type"));
 }
