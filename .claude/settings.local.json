@@ -9,7 +9,9 @@
       "WebFetch(domain:docs.gitlab.com)",
       "Bash(claude mcp:*)",
       "Bash(python3:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(cd /c/Users/Culle/OneDrive/Desktop/git2/gitlab/OpenDuo/.worktrees/openduo-implementation && cargo build 2>&1)",
+      "Bash(cd:*)"
     ]
   }
 }

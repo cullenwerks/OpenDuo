@@ -1,0 +1,17 @@
+[package]
+name = "openduo-tools"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openduo-core = { path = "../openduo-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+urlencoding = "2"
+base64 = "0.22"

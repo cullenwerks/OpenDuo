@@ -1,0 +1,160 @@
+stages:
+  - test
+  - build
+  - package
+  - release
+
+variables:
+  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  RUST_VERSION: "stable"
+
+# ── TEST ──────────────────────────────────────────────────────────
+
+rust:fmt:
+  stage: test
+  image: "rust:${RUST_VERSION}"
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --all -- --check
+  cache:
+    key: rust-cache
+    paths: [.cargo/]
+
+rust:clippy:
+  stage: test
+  image: "rust:${RUST_VERSION}"
+  script:
+    - rustup component add clippy
+    - cargo clippy --workspace -- -D warnings
+  cache:
+    key: rust-cache
+    paths: [.cargo/, target/]
+
+rust:test:
+  stage: test
+  image: "rust:${RUST_VERSION}"
+  script:
+    - cargo test --workspace
+  cache:
+    key: rust-cache
+    paths: [.cargo/, target/]
+
+rust:audit:
+  stage: test
+  image: "rust:${RUST_VERSION}"
+  script:
+    - cargo install cargo-audit
+    - cargo audit
+  cache:
+    key: rust-cache
+    paths: [.cargo/]
+  allow_failure: false
+
+ts:test:
+  stage: test
+  image: node:20
+  script:
+    - cd extension
+    - npm ci
+    - npm test
+  cache:
+    key: node-cache
+    paths: [extension/node_modules/]
+
+ts:lint:
+  stage: test
+  image: node:20
+  script:
+    - cd extension
+    - npm ci
+    - npx tsc --noEmit
+  cache:
+    key: node-cache
+    paths: [extension/node_modules/]
+
+ts:audit:
+  stage: test
+  image: node:20
+  script:
+    - cd extension
+    - npm ci
+    - npm audit --audit-level=high
+  cache:
+    key: node-cache
+    paths: [extension/node_modules/]
+
+# ── BUILD ─────────────────────────────────────────────────────────
+
+rust:build:windows:
+  stage: build
+  image: "rust:${RUST_VERSION}"
+  before_script:
+    - apt-get update && apt-get install -y mingw-w64
+    - rustup target add x86_64-pc-windows-gnu
+  script:
+    - cargo build --release --target x86_64-pc-windows-gnu -p openduo-server
+  artifacts:
+    paths:
+      - target/x86_64-pc-windows-gnu/release/openduo-server.exe
+    expire_in: 1 hour
+  cache:
+    key: rust-windows-cache
+    paths: [.cargo/, target/]
+
+ts:build:
+  stage: build
+  image: node:20
+  script:
+    - cd extension
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - extension/dist/
+    expire_in: 1 hour
+  cache:
+    key: node-cache
+    paths: [extension/node_modules/]
+
+# ── PACKAGE ───────────────────────────────────────────────────────
+
+vsix:package:
+  stage: package
+  image: node:20
+  needs:
+    - rust:build:windows
+    - ts:build
+  script:
+    - mkdir -p extension/bin
+    - cp target/x86_64-pc-windows-gnu/release/openduo-server.exe extension/bin/
+    - cd extension
+    - npm ci
+    - npx vsce package --out openduo-windows-x64-${CI_COMMIT_TAG:-dev}.vsix
+  artifacts:
+    paths:
+      - extension/openduo-windows-x64-*.vsix
+    expire_in: 7 days
+  cache:
+    key: node-cache
+    paths: [extension/node_modules/]
+
+# ── RELEASE ───────────────────────────────────────────────────────
+
+gitlab:release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - vsix:package
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+  script:
+    - echo "Creating GitLab Release for ${CI_COMMIT_TAG}"
+  release:
+    name: "OpenDuo ${CI_COMMIT_TAG}"
+    description: "OpenDuo VS Code Extension — Windows x64"
+    tag_name: "${CI_COMMIT_TAG}"
+    assets:
+      links:
+        - name: "openduo-windows-x64-${CI_COMMIT_TAG}.vsix"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/extension/openduo-windows-x64-${CI_COMMIT_TAG}.vsix?job=vsix:package"
+          link_type: package
