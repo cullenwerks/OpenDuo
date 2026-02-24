@@ -1,2 +1,6 @@
-// Stub — implemented in Task 8
-export {};
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { ChatApp } from './components/ChatApp';
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<ChatApp />);

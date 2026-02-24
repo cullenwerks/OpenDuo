@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src ${cspNonce}; style-src 'unsafe-inline'; connect-src http://127.0.0.1:*;">
+  <title>OpenDuo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--vscode-font-family);
+      background: var(--vscode-editor-background);
+      color: var(--vscode-editor-foreground);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script nonce="${cspNonce}" src="${webviewUri}"></script>
+</body>
+</html>
