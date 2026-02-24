@@ -73,8 +73,18 @@ impl ToolRegistry {
     }
 
     pub async fn execute(&self, name: &str, args: serde_json::Value) -> Result<String> {
+        let span = tracing::info_span!("tool_execute", tool_name = %name);
+        let _enter = span.enter();
+        tracing::info!(tool = %name, args = %args, "Tool invocation");
         match self.tools.get(name) {
-            Some(tool) => tool.execute(args).await,
+            Some(tool) => {
+                let result = tool.execute(args).await;
+                match &result {
+                    Ok(r) => tracing::info!(tool = %name, result_len = r.len(), "Tool success"),
+                    Err(e) => tracing::error!(tool = %name, error = %e, "Tool failed"),
+                }
+                result
+            }
             None => anyhow::bail!("Unknown tool: {}", name),
         }
     }
