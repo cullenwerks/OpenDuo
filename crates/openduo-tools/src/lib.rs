@@ -1,0 +1,10 @@
+pub mod registry;
+pub mod issues;
+pub mod merge_requests;
+pub mod pipelines;
+pub mod repositories;
+pub mod projects;
+pub mod users;
+pub mod cicd;
+pub mod milestones;
+pub mod labels;
