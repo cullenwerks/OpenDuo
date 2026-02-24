@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(echo Could not parse credentials:*)",
+      "Bash(tail:*)",
+      "Bash(curl:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.gitlab.com)",
+      "Bash(claude mcp:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
