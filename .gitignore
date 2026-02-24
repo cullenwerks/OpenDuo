@@ -1,0 +1,22 @@
+# Worktrees
+.worktrees/
+
+# Rust
+target/
+Cargo.lock
+
+# Node
+extension/node_modules/
+extension/dist/
+
+# VS Code
+.vscode/
+*.vsix
+
+# Env / secrets
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
