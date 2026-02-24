@@ -1,0 +1,52 @@
+{
+  "name": "openduo",
+  "displayName": "OpenDuo",
+  "description": "GitLab Duo Agentic Chat for Federal Enterprise",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "openduo.openChat",
+        "title": "OpenDuo: Open Chat"
+      },
+      {
+        "command": "openduo.configurePat",
+        "title": "OpenDuo: Configure PAT"
+      }
+    ],
+    "configuration": {
+      "title": "OpenDuo",
+      "properties": {
+        "openduo.gitlabUrl": {
+          "type": "string",
+          "default": "",
+          "description": "GitLab instance URL (e.g. https://gitlab.example.com)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "test": "vitest run",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "@vscode/vsce": "^2.24.0"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}
