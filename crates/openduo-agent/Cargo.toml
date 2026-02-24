@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 openduo-core = { path = "../openduo-core" }
 openduo-tools = { path = "../openduo-tools" }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
