@@ -3,6 +3,7 @@ import * as path from 'path';
 import { PatManager } from './patManager';
 import { ServerManager } from './server';
 import { getOutputChannel, log } from './logger';
+import { ChatPanel } from './chatPanel';
 
 let serverManager: ServerManager | null = null;
 
@@ -47,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await serverManager.start(getOutputChannel());
       }
       log('Server running at ' + serverManager.serverUrl());
-      vscode.window.showInformationMessage('OpenDuo: Server started. Chat coming in Phase 4.');
+      ChatPanel.createOrShow(context.extensionUri, serverManager.serverUrl());
     })
   );
 
