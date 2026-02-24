@@ -1,5 +1,6 @@
 mod routes;
 mod sse;
+mod validation;
 
 use anyhow::Result;
 use openduo_agent::gitlab_provider::GitLabAiProvider;

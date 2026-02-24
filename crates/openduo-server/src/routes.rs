@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use crate::validation::validate_chat_request;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -48,31 +49,37 @@ pub async fn chat_handler(
 ) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>
 {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let provider = state.provider.clone();
-    let tools = state.tools.clone();
-    let gitlab_url = state.gitlab_url.clone();
-    let history = state.history.clone();
-    let username = req.username.unwrap_or_else(|| "user".to_string());
-    let message = req.message;
 
-    tokio::spawn(async move {
-        let react_loop = ReactLoop::new(10);
-        let mut hist = history.lock().await;
-        let _ = react_loop
-            .run(
-                &message,
-                &mut hist,
-                &provider,
-                &tools,
-                &gitlab_url,
-                &username,
-                |token| {
-                    let _ = tx.send(token);
-                },
-            )
-            .await;
+    if let Err(e) = validate_chat_request(&req.message) {
+        let _ = tx.send(format!("[ERROR] {}", e));
         let _ = tx.send("[DONE]".to_string());
-    });
+    } else {
+        let provider = state.provider.clone();
+        let tools = state.tools.clone();
+        let gitlab_url = state.gitlab_url.clone();
+        let history = state.history.clone();
+        let username = req.username.unwrap_or_else(|| "user".to_string());
+        let message = req.message;
+
+        tokio::spawn(async move {
+            let react_loop = ReactLoop::new(10);
+            let mut hist = history.lock().await;
+            let _ = react_loop
+                .run(
+                    &message,
+                    &mut hist,
+                    &provider,
+                    &tools,
+                    &gitlab_url,
+                    &username,
+                    |token| {
+                        let _ = tx.send(token);
+                    },
+                )
+                .await;
+            let _ = tx.send("[DONE]".to_string());
+        });
+    }
 
     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx).map(|data| {
         Ok::<_, std::convert::Infallible>(axum::response::sse::Event::default().data(data))
