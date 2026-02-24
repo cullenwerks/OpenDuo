@@ -4,6 +4,9 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
+// Re-export from openduo-core so consumers keep using openduo_agent::provider::ToolDefinition
+pub use openduo_core::types::ToolDefinition;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatRole {
@@ -17,13 +20,6 @@ pub enum ChatRole {
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]
