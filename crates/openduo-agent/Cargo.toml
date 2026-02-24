@@ -1,0 +1,17 @@
+[package]
+name = "openduo-agent"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openduo-core = { path = "../openduo-core" }
+openduo-tools = { path = "../openduo-tools" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
