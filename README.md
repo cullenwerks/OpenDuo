@@ -1,6 +1,6 @@
 # OpenDuo
 
-GitLab Duo Agentic Chat for Federal Enterprise environments.
+Open Source GitLab Duo Agentic Chat for Enterprise environments.
 PAT-authenticated, no OAuth required, Windows x64.
 
 ## Prerequisites
