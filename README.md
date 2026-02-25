@@ -21,7 +21,7 @@ PAT-authenticated, no OAuth required, Windows x64.
 1. Open VS Code Settings (`Ctrl+,`)
 2. Search for `openduo`
 3. Set `openduo.gitlabUrl` to your GitLab instance URL
-   Example: `https://gitlab.example.gov`
+   Example: `https://gitlab.example.com`
 4. Run `Ctrl+Shift+P` → "OpenDuo: Configure PAT"
 5. Enter your GitLab PAT (stored securely in Windows Credential Manager)
 
