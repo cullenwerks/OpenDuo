@@ -45,7 +45,8 @@
     "build": "node esbuild.config.js",
     "watch": "node esbuild.config.js --watch",
     "test": "vitest run",
-    "package": "vsce package"
+    "prepackage": "cd .. && cargo build --release -p openduo-server && mkdir -p extension/bin && cp target/release/openduo-server.exe extension/bin/",
+    "package": "npm run build && vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
