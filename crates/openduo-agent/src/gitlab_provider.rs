@@ -8,7 +8,7 @@ use openduo_core::{auth::AuthHeaders, config::Config};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, instrument};
+use tracing::{debug, error, instrument};
 
 pub struct GitLabAiProvider {
     client: Client,
@@ -160,14 +160,33 @@ impl LlmProvider for GitLabAiProvider {
         let body = self.build_request_body(&messages, &tools);
         debug!("Sending to GitLab AI Gateway: {}", self.gateway_url);
 
-        let resp = self
+        let raw_resp = self
             .client
             .post(&self.gateway_url)
             .headers(headers)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to connect to GitLab AI Gateway at {}: {}",
+                    self.gateway_url, e
+                );
+                anyhow!("Failed to connect to GitLab AI Gateway: {}", e)
+            })?;
+
+        let status = raw_resp.status();
+        if !status.is_success() {
+            let body_text = raw_resp.text().await.unwrap_or_default();
+            error!("GitLab AI Gateway returned HTTP {}: {}", status, body_text);
+            return Err(anyhow!(
+                "GitLab AI Gateway returned HTTP {} — {}",
+                status,
+                body_text
+            ));
+        }
+
+        let resp = raw_resp;
 
         // Shared mutable state for buffering and tool call accumulation
         let buffer = Arc::new(Mutex::new(String::new()));

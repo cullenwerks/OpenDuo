@@ -4,7 +4,7 @@ use anyhow::Result;
 use futures::StreamExt;
 use openduo_tools::registry::ToolRegistry;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 pub struct ReactLoop {
     max_iterations: usize,
@@ -31,7 +31,11 @@ impl ReactLoop {
             info!("ReAct iteration {}", iteration + 1);
             let mut stream = provider
                 .chat_stream(history.clone(), tool_defs.clone())
-                .await?;
+                .await
+                .map_err(|e| {
+                    error!("LLM provider error: {:#}", e);
+                    e
+                })?;
             let mut current_response = String::new();
             let mut tool_calls: Vec<crate::provider::ToolCall> = Vec::new();
 

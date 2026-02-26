@@ -27,7 +27,10 @@ impl MergeRequestTools {
             Box::new(AddMrComment {
                 client: client.clone(),
             }),
-            Box::new(GetMrDiff {
+            Box::new(GetMrChanges {
+                client: client.clone(),
+            }),
+            Box::new(SearchMergeRequests {
                 client: client.clone(),
             }),
         ]
@@ -300,16 +303,16 @@ impl Tool for AddMrComment {
     }
 }
 
-struct GetMrDiff {
+struct GetMrChanges {
     client: GitLabClient,
 }
 #[async_trait]
-impl Tool for GetMrDiff {
+impl Tool for GetMrChanges {
     fn name(&self) -> &str {
-        "get_mr_diff"
+        "get_mr_changes"
     }
     fn description(&self) -> &str {
-        "Get the diff of a merge request."
+        "Get the file-by-file changes/diff of a merge request."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -330,10 +333,57 @@ impl Tool for GetMrDiff {
         let iid = args["mr_iid"]
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("mr_iid required"))?;
-        let v: Vec<Value> = self
+        let v: Value = self
             .client
-            .get(&format!("projects/{}/merge_requests/{}/diffs", pid, iid))
+            .get(&format!("projects/{}/merge_requests/{}/changes", pid, iid))
             .await?;
         Ok(serde_json::to_string_pretty(&v)?)
+    }
+}
+
+struct SearchMergeRequests {
+    client: GitLabClient,
+}
+#[async_trait]
+impl Tool for SearchMergeRequests {
+    fn name(&self) -> &str {
+        "search_merge_requests"
+    }
+    fn description(&self) -> &str {
+        "Search merge requests in a project by keyword."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "project_id": { "type": "string", "description": "Project ID or URL-encoded path" },
+                "query": { "type": "string", "description": "Search query" },
+                "state": { "type": "string", "enum": ["opened", "closed", "merged", "all"], "default": "all" },
+                "per_page": { "type": "integer", "default": 20 }
+            },
+            "required": ["project_id", "query"]
+        })
+    }
+    async fn execute(&self, args: Value) -> Result<String> {
+        let pid = urlencoding::encode(
+            args["project_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("project_id required"))?,
+        );
+        let query = urlencoding::encode(
+            args["query"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("query required"))?,
+        );
+        let state = args["state"].as_str().unwrap_or("all");
+        let per_page = args["per_page"].as_u64().unwrap_or(20);
+        let mrs: Vec<Value> = self
+            .client
+            .get(&format!(
+                "projects/{}/merge_requests?search={}&state={}&per_page={}",
+                pid, query, state, per_page
+            ))
+            .await?;
+        Ok(serde_json::to_string_pretty(&mrs)?)
     }
 }

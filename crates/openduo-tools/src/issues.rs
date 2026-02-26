@@ -27,6 +27,9 @@ impl IssuesTools {
             Box::new(AddIssueComment {
                 client: client.clone(),
             }),
+            Box::new(SearchIssues {
+                client: client.clone(),
+            }),
         ]
     }
 }
@@ -299,5 +302,52 @@ impl Tool for AddIssueComment {
             )
             .await?;
         Ok(serde_json::to_string_pretty(&v)?)
+    }
+}
+
+struct SearchIssues {
+    client: GitLabClient,
+}
+#[async_trait]
+impl Tool for SearchIssues {
+    fn name(&self) -> &str {
+        "search_issues"
+    }
+    fn description(&self) -> &str {
+        "Search issues in a project by keyword."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "project_id": { "type": "string", "description": "Project ID or URL-encoded path" },
+                "query": { "type": "string", "description": "Search query" },
+                "state": { "type": "string", "enum": ["opened", "closed", "all"], "default": "all" },
+                "per_page": { "type": "integer", "default": 20 }
+            },
+            "required": ["project_id", "query"]
+        })
+    }
+    async fn execute(&self, args: Value) -> Result<String> {
+        let pid = urlencoding::encode(
+            args["project_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("project_id required"))?,
+        );
+        let query = urlencoding::encode(
+            args["query"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("query required"))?,
+        );
+        let state = args["state"].as_str().unwrap_or("all");
+        let per_page = args["per_page"].as_u64().unwrap_or(20);
+        let issues: Vec<Value> = self
+            .client
+            .get(&format!(
+                "projects/{}/issues?search={}&state={}&per_page={}",
+                pid, query, state, per_page
+            ))
+            .await?;
+        Ok(serde_json::to_string_pretty(&issues)?)
     }
 }

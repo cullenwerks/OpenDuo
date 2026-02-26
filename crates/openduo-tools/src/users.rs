@@ -12,6 +12,9 @@ impl UserTools {
             Box::new(GetCurrentUser {
                 client: client.clone(),
             }),
+            Box::new(GetUser {
+                client: client.clone(),
+            }),
             Box::new(ListProjectMembers {
                 client: client.clone(),
             }),
@@ -39,6 +42,35 @@ impl Tool for GetCurrentUser {
     }
     async fn execute(&self, _args: Value) -> Result<String> {
         let v: Value = self.client.get("user").await?;
+        Ok(serde_json::to_string_pretty(&v)?)
+    }
+}
+
+struct GetUser {
+    client: GitLabClient,
+}
+#[async_trait]
+impl Tool for GetUser {
+    fn name(&self) -> &str {
+        "get_user"
+    }
+    fn description(&self) -> &str {
+        "Get a GitLab user by ID."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "user_id": { "type": "integer", "description": "User ID" }
+            },
+            "required": ["user_id"]
+        })
+    }
+    async fn execute(&self, args: Value) -> Result<String> {
+        let user_id = args["user_id"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("user_id required"))?;
+        let v: Value = self.client.get(&format!("users/{}", user_id)).await?;
         Ok(serde_json::to_string_pretty(&v)?)
     }
 }

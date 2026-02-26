@@ -73,21 +73,29 @@ pub async fn chat_handler(
         tokio::spawn(async move {
             // Serialize chat requests to prevent history race conditions
             let _guard = chat_lock.lock().await;
-            let react_loop = ReactLoop::new(10);
+            let react_loop = ReactLoop::new(15);
             let mut hist = history.lock().await.clone();
-            let _ = react_loop
+            match react_loop
                 .run(&message, &mut hist, &provider, &tools, |token| {
                     let _ = tx.send(token);
                 })
-                .await;
-            // Trim history to prevent unbounded growth (keep system prompt + last 50 messages)
-            if hist.len() > 51 {
-                let system = hist[0].clone();
-                hist = std::iter::once(system)
-                    .chain(hist[hist.len() - 50..].iter().cloned())
-                    .collect();
+                .await
+            {
+                Ok(_) => {
+                    // Trim history to prevent unbounded growth (keep system prompt + last 50 messages)
+                    if hist.len() > 51 {
+                        let system = hist[0].clone();
+                        hist = std::iter::once(system)
+                            .chain(hist[hist.len() - 50..].iter().cloned())
+                            .collect();
+                    }
+                    *history.lock().await = hist;
+                }
+                Err(e) => {
+                    tracing::error!("ReactLoop error: {:#}", e);
+                    let _ = tx.send(format!("Error: {}", e));
+                }
             }
-            *history.lock().await = hist;
             let _ = tx.send("[DONE]".to_string());
         });
     }

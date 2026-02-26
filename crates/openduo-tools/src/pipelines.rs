@@ -24,6 +24,9 @@ impl PipelineTools {
             Box::new(CancelPipeline {
                 client: client.clone(),
             }),
+            Box::new(GetPipelineJobs {
+                client: client.clone(),
+            }),
             Box::new(GetJobLog {
                 client: client.clone(),
             }),
@@ -220,6 +223,49 @@ impl Tool for CancelPipeline {
                 &format!("projects/{}/pipelines/{}/cancel", pid, pipeline_id),
                 json!({}),
             )
+            .await?;
+        Ok(serde_json::to_string_pretty(&v)?)
+    }
+}
+
+struct GetPipelineJobs {
+    client: GitLabClient,
+}
+#[async_trait]
+impl Tool for GetPipelineJobs {
+    fn name(&self) -> &str {
+        "get_pipeline_jobs"
+    }
+    fn description(&self) -> &str {
+        "List all jobs for a specific pipeline."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "project_id": { "type": "string" },
+                "pipeline_id": { "type": "integer" },
+                "per_page": { "type": "integer", "default": 100 }
+            },
+            "required": ["project_id", "pipeline_id"]
+        })
+    }
+    async fn execute(&self, args: Value) -> Result<String> {
+        let pid = urlencoding::encode(
+            args["project_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("project_id required"))?,
+        );
+        let pipeline_id = args["pipeline_id"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("pipeline_id required"))?;
+        let per_page = args["per_page"].as_u64().unwrap_or(100);
+        let v: Vec<Value> = self
+            .client
+            .get(&format!(
+                "projects/{}/pipelines/{}/jobs?per_page={}",
+                pid, pipeline_id, per_page
+            ))
             .await?;
         Ok(serde_json::to_string_pretty(&v)?)
     }
