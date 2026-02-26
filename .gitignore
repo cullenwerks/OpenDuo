@@ -4,7 +4,6 @@
 # Rust
 target/
 target2/
-Cargo.lock
 
 # Node
 extension/node_modules/
