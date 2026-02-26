@@ -20,6 +20,8 @@ pub struct AppState {
     pub provider: Arc<dyn LlmProvider>,
     pub tools: Arc<ToolRegistry>,
     pub history: Arc<Mutex<Vec<openduo_agent::provider::ChatMessage>>>,
+    /// Serializes chat requests so only one runs at a time, preventing history races.
+    pub chat_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +38,8 @@ pub async fn tools_list(State(state): State<AppState>) -> Json<Value> {
 }
 
 pub fn build_router(state: AppState) -> Router {
+    // Allow any origin: server only listens on 127.0.0.1, and VS Code
+    // webviews use unpredictable vscode-webview:// origins.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -63,18 +67,26 @@ pub async fn chat_handler(
         let provider = state.provider.clone();
         let tools = state.tools.clone();
         let history = state.history.clone();
+        let chat_lock = state.chat_lock.clone();
         let message = req.message;
 
         tokio::spawn(async move {
+            // Serialize chat requests to prevent history race conditions
+            let _guard = chat_lock.lock().await;
             let react_loop = ReactLoop::new(10);
-            // Clone history out to avoid holding mutex across async work
             let mut hist = history.lock().await.clone();
             let _ = react_loop
                 .run(&message, &mut hist, &provider, &tools, |token| {
                     let _ = tx.send(token);
                 })
                 .await;
-            // Write updated history back
+            // Trim history to prevent unbounded growth (keep system prompt + last 50 messages)
+            if hist.len() > 51 {
+                let system = hist[0].clone();
+                hist = std::iter::once(system)
+                    .chain(hist[hist.len() - 50..].iter().cloned())
+                    .collect();
+            }
             *history.lock().await = hist;
             let _ = tx.send("[DONE]".to_string());
         });

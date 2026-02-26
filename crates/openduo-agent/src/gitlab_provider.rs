@@ -77,6 +77,11 @@ fn parse_sse_events(
 ) -> Vec<Result<ModelResponse>> {
     let mut events = Vec::new();
 
+    // Normalize \r\n to \n for cross-platform SSE compatibility
+    if buffer.contains("\r\n") {
+        *buffer = buffer.replace("\r\n", "\n");
+    }
+
     while let Some(pos) = buffer.find("\n\n") {
         let event_block = buffer[..pos].to_string();
         *buffer = buffer[pos + 2..].to_string();

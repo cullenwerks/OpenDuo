@@ -13,14 +13,14 @@ fn test_config() -> Config {
 #[test]
 #[serial]
 fn test_registry_has_tools() {
-    let registry = ToolRegistry::new(test_config());
+    let registry = ToolRegistry::new(test_config()).unwrap();
     assert!(!registry.definitions().is_empty());
 }
 
 #[test]
 #[serial]
 fn test_registry_lists_expected_tools() {
-    let registry = ToolRegistry::new(test_config());
+    let registry = ToolRegistry::new(test_config()).unwrap();
     let names: Vec<String> = registry
         .definitions()
         .iter()

@@ -33,8 +33,7 @@ impl ReactLoop {
                 .chat_stream(history.clone(), tool_defs.clone())
                 .await?;
             let mut current_response = String::new();
-            let mut tool_call_name: Option<String> = None;
-            let mut tool_call_args: Option<serde_json::Value> = None;
+            let mut tool_calls: Vec<crate::provider::ToolCall> = Vec::new();
 
             while let Some(event) = stream.next().await {
                 match event? {
@@ -43,21 +42,22 @@ impl ReactLoop {
                         current_response.push_str(&token);
                     }
                     ModelResponse::ToolCall(tc) => {
-                        tool_call_name = Some(tc.name);
-                        tool_call_args = Some(tc.arguments);
+                        tool_calls.push(tc);
                     }
                     ModelResponse::Done => break,
                 }
             }
 
-            if let (Some(name), Some(args)) = (tool_call_name, tool_call_args) {
-                info!("Executing tool: {}", name);
-                let result = tools
-                    .execute(&name, args)
-                    .await
-                    .unwrap_or_else(|e| format!("Tool error: {}", e));
-                PromptBuilder::append_assistant(history, &format!("[Using tool: {}]", name));
-                PromptBuilder::append_tool_result(history, &name, &result);
+            if !tool_calls.is_empty() {
+                for tc in tool_calls {
+                    info!("Executing tool: {}", tc.name);
+                    let result = tools
+                        .execute(&tc.name, tc.arguments)
+                        .await
+                        .unwrap_or_else(|e| format!("Tool error: {}", e));
+                    PromptBuilder::append_assistant(history, &format!("[Using tool: {}]", tc.name));
+                    PromptBuilder::append_tool_result(history, &tc.name, &result);
+                }
             } else {
                 final_response = current_response.clone();
                 PromptBuilder::append_assistant(history, &current_response);
@@ -69,6 +69,7 @@ impl ReactLoop {
                 final_response = "I've reached the maximum number of reasoning steps. \
                     Please try rephrasing your question."
                     .to_string();
+                on_token(final_response.clone());
                 PromptBuilder::append_assistant(history, &final_response);
             }
         }

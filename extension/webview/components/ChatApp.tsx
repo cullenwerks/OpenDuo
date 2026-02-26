@@ -30,7 +30,7 @@ export const ChatApp: React.FC = () => {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <StatusBar connected={connected} model="claude-sonnet-4-5" />
       <ChatWindow messages={messages} />
-      <InputBar onSend={(text) => sendMessage(text, 'user')} disabled={isLoading} />
+      <InputBar onSend={(text) => sendMessage(text)} disabled={isLoading} />
     </div>
   );
 };

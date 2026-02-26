@@ -13,16 +13,16 @@ pub struct GitLabClient {
 }
 
 impl GitLabClient {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Result<Self> {
         let client = Client::builder()
             .use_native_tls()
             .build()
-            .expect("Failed to build reqwest client");
-        Self {
+            .map_err(|e| anyhow::anyhow!("Failed to build reqwest client: {}", e))?;
+        Ok(Self {
             client,
             base_url: config.gitlab_url.trim_end_matches('/').to_string(),
             pat: config.pat,
-        }
+        })
     }
 
     pub fn base_url(&self) -> &str {

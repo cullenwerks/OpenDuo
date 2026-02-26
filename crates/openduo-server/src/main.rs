@@ -23,17 +23,15 @@ async fn main() -> Result<()> {
     let gitlab_url = config.gitlab_url.clone();
 
     let provider = Arc::new(GitLabAiProvider::new(&config)?);
-    let tools = Arc::new(ToolRegistry::new(config));
+    let tools = Arc::new(ToolRegistry::new(config)?);
     // Initialize conversation history with system prompt
-    let history = Arc::new(Mutex::new(PromptBuilder::build_initial(
-        &gitlab_url,
-        "user",
-    )));
+    let history = Arc::new(Mutex::new(PromptBuilder::build_initial(&gitlab_url)));
 
     let state = AppState {
         provider,
         tools,
         history,
+        chat_lock: Arc::new(Mutex::new(())),
     };
     let app = build_router(state);
 

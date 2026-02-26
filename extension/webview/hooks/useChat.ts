@@ -21,7 +21,7 @@ export function useChat(serverUrl: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const sendMessage = useCallback(async (text: string, username: string) => {
+  const sendMessage = useCallback(async (text: string) => {
     const userMsg = createMessage('user', text);
     const assistantMsg: ChatMessage = { ...createMessage('assistant', ''), isStreaming: true };
 
@@ -32,7 +32,7 @@ export function useChat(serverUrl: string) {
       const resp = await fetch(`${serverUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, username }),
+        body: JSON.stringify({ message: text }),
       });
 
       if (!resp.ok) {

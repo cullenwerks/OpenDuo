@@ -33,8 +33,8 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn new(config: Config) -> Self {
-        let client = GitLabClient::new(config);
+    pub fn new(config: Config) -> anyhow::Result<Self> {
+        let client = GitLabClient::new(config)?;
         let mut tools: HashMap<String, Box<dyn Tool>> = HashMap::new();
 
         for tool in IssuesTools::all(client.clone()) {
@@ -65,7 +65,7 @@ impl ToolRegistry {
             tools.insert(tool.name().to_string(), tool);
         }
 
-        Self { tools }
+        Ok(Self { tools })
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {

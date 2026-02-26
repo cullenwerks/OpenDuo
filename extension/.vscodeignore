@@ -6,3 +6,4 @@ webview/
 *.map
 esbuild.config.js
 tsconfig.json
+tsconfig.webview.json
