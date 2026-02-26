@@ -12,7 +12,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const patManager = new PatManager(context.secrets);
   const binaryPath = path.join(context.extensionPath, 'bin', 'openduo-server.exe');
-  const gitlabUrl = vscode.workspace.getConfiguration('openduo').get<string>('gitlabUrl', '');
 
   // Register: Configure PAT
   context.subscriptions.push(
@@ -38,6 +37,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
+      // Read setting at command time so changes are picked up without restart
+      const gitlabUrl = vscode.workspace.getConfiguration('openduo').get<string>('gitlabUrl', '');
       if (!gitlabUrl) {
         vscode.window.showErrorMessage('OpenDuo: Set openduo.gitlabUrl in settings.');
         return;
