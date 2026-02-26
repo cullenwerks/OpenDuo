@@ -1,5 +1,5 @@
 use crate::provider::{
-    ChatMessage, LlmProvider, ModelResponse, TokenStream, ToolCall, ToolDefinition,
+    ChatMessage, ChatRole, LlmProvider, ModelResponse, TokenStream, ToolDefinition,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -7,14 +7,12 @@ use futures::StreamExt;
 use openduo_core::{auth::AuthHeaders, config::Config};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
 use tracing::{debug, error, instrument};
 
 pub struct GitLabAiProvider {
     client: Client,
     gateway_url: String,
     pat: String,
-    model: String,
 }
 
 impl GitLabAiProvider {
@@ -31,134 +29,36 @@ impl GitLabAiProvider {
             client,
             gateway_url,
             pat: config.pat.clone(),
-            model: "claude-sonnet-4-5".to_string(),
         })
     }
-
-    fn build_request_body(&self, messages: &[ChatMessage], tools: &[ToolDefinition]) -> Value {
-        let msgs: Vec<Value> = messages
-            .iter()
-            .map(|m| json!({ "role": m.role, "content": m.content }))
-            .collect();
-
-        let mut body = json!({
-            "model": self.model,
-            "messages": msgs,
-            "stream": true,
-        });
-
-        if !tools.is_empty() {
-            let tool_defs: Vec<Value> = tools
-                .iter()
-                .map(|t| {
-                    json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.parameters,
-                        }
-                    })
-                })
-                .collect();
-            body["tools"] = json!(tool_defs);
-            body["tool_choice"] = json!("auto");
-        }
-        body
-    }
-}
-
-/// Parse complete SSE events from a buffer, returning parsed ModelResponse items.
-/// Accumulates tool call name/arguments across streaming deltas.
-fn parse_sse_events(
-    buffer: &mut String,
-    tc_name: &mut String,
-    tc_args: &mut String,
-) -> Vec<Result<ModelResponse>> {
-    let mut events = Vec::new();
-
-    // Normalize \r\n to \n for cross-platform SSE compatibility
-    if buffer.contains("\r\n") {
-        *buffer = buffer.replace("\r\n", "\n");
-    }
-
-    while let Some(pos) = buffer.find("\n\n") {
-        let event_block = buffer[..pos].to_string();
-        *buffer = buffer[pos + 2..].to_string();
-
-        for line in event_block.lines() {
-            if let Some(json_str) = line.strip_prefix("data: ") {
-                let trimmed = json_str.trim();
-                if trimmed == "[DONE]" {
-                    // Emit accumulated tool call before Done if present
-                    if !tc_name.is_empty() {
-                        let arguments = serde_json::from_str(tc_args).unwrap_or(json!({}));
-                        events.push(Ok(ModelResponse::ToolCall(ToolCall {
-                            name: std::mem::take(tc_name),
-                            arguments,
-                        })));
-                        tc_args.clear();
-                    }
-                    events.push(Ok(ModelResponse::Done));
-                    return events;
-                }
-
-                if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
-                    let finish_reason = val["choices"][0]["finish_reason"].as_str();
-
-                    // Accumulate tool call deltas
-                    if let Some(tc) = val["choices"][0]["delta"]["tool_calls"][0].as_object() {
-                        if let Some(name) = tc["function"]["name"].as_str() {
-                            if !name.is_empty() {
-                                *tc_name = name.to_string();
-                            }
-                        }
-                        if let Some(args_fragment) = tc["function"]["arguments"].as_str() {
-                            tc_args.push_str(args_fragment);
-                        }
-                    }
-
-                    // Emit completed tool call when finish_reason indicates it
-                    if finish_reason == Some("tool_calls") && !tc_name.is_empty() {
-                        let arguments = serde_json::from_str(tc_args).unwrap_or(json!({}));
-                        events.push(Ok(ModelResponse::ToolCall(ToolCall {
-                            name: std::mem::take(tc_name),
-                            arguments,
-                        })));
-                        tc_args.clear();
-                        continue;
-                    }
-
-                    // Content token
-                    if let Some(token) = val["choices"][0]["delta"]["content"].as_str() {
-                        if !token.is_empty() {
-                            events.push(Ok(ModelResponse::Token(token.to_string())));
-                        }
-                    }
-
-                    // Normal stop
-                    if finish_reason == Some("stop") {
-                        events.push(Ok(ModelResponse::Done));
-                    }
-                }
-            }
-        }
-    }
-
-    events
 }
 
 #[async_trait]
 impl LlmProvider for GitLabAiProvider {
-    #[instrument(skip(self, messages, tools))]
+    #[instrument(skip(self, messages, _tools))]
     async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
-        tools: Vec<ToolDefinition>,
+        _tools: Vec<ToolDefinition>,
     ) -> Result<TokenStream> {
-        let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        let body = self.build_request_body(&messages, &tools);
-        debug!("Sending to GitLab AI Gateway: {}", self.gateway_url);
+        // GitLab Duo Chat API uses Bearer auth, not PRIVATE-TOKEN
+        let headers = AuthHeaders::new(&self.pat).to_bearer_header_map()?;
+
+        // Extract the last user message as the content to send
+        let content = messages
+            .iter()
+            .rev()
+            .find(|m| matches!(m.role, ChatRole::User))
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+
+        // GitLab Duo Chat API request format
+        let body = json!({ "content": content });
+        debug!(
+            "Sending to GitLab Duo Chat: {} (content length: {})",
+            self.gateway_url,
+            content.len()
+        );
 
         let raw_resp = self
             .client
@@ -169,45 +69,103 @@ impl LlmProvider for GitLabAiProvider {
             .await
             .map_err(|e| {
                 error!(
-                    "Failed to connect to GitLab AI Gateway at {}: {}",
+                    "Failed to connect to GitLab Duo Chat at {}: {}",
                     self.gateway_url, e
                 );
-                anyhow!("Failed to connect to GitLab AI Gateway: {}", e)
+                anyhow!("Failed to connect to GitLab Duo Chat: {}", e)
             })?;
 
         let status = raw_resp.status();
         if !status.is_success() {
             let body_text = raw_resp.text().await.unwrap_or_default();
-            error!("GitLab AI Gateway returned HTTP {}: {}", status, body_text);
+            error!("GitLab Duo Chat returned HTTP {}: {}", status, body_text);
             return Err(anyhow!(
-                "GitLab AI Gateway returned HTTP {} — {}",
+                "GitLab Duo Chat returned HTTP {} — {}",
                 status,
                 body_text
             ));
         }
 
-        let resp = raw_resp;
+        let content_type = raw_resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        debug!("Response content-type: {}", content_type);
 
-        // Shared mutable state for buffering and tool call accumulation
-        let buffer = Arc::new(Mutex::new(String::new()));
-        let tc_name = Arc::new(Mutex::new(String::new()));
-        let tc_args = Arc::new(Mutex::new(String::new()));
+        if content_type.contains("text/event-stream") {
+            // SSE streaming response — parse data: lines
+            let stream = raw_resp.bytes_stream().flat_map(move |chunk| {
+                let events: Vec<Result<ModelResponse>> = match chunk {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes).to_string();
+                        parse_sse_chunk(&text)
+                    }
+                    Err(e) => vec![Err(anyhow!(e))],
+                };
+                futures::stream::iter(events)
+            });
+            Ok(Box::pin(stream))
+        } else {
+            // Non-streaming response — read entire body as text
+            let body_text = raw_resp.text().await?;
+            debug!("Duo Chat response length: {}", body_text.len());
 
-        let stream = resp.bytes_stream().flat_map(move |chunk| {
-            let events: Vec<Result<ModelResponse>> = match chunk {
-                Ok(bytes) => {
-                    let text = String::from_utf8_lossy(&bytes).to_string();
-                    let mut buf = buffer.lock().unwrap();
-                    buf.push_str(&text);
-                    let mut name = tc_name.lock().unwrap();
-                    let mut args = tc_args.lock().unwrap();
-                    parse_sse_events(&mut buf, &mut name, &mut args)
-                }
-                Err(e) => vec![Err(anyhow!(e))],
+            // Response may be a JSON string or plain text
+            let response_text = if body_text.starts_with('"') {
+                serde_json::from_str::<String>(&body_text).unwrap_or(body_text)
+            } else {
+                body_text
             };
-            futures::stream::iter(events)
-        });
 
-        Ok(Box::pin(stream))
+            let events: Vec<Result<ModelResponse>> = vec![
+                Ok(ModelResponse::Token(response_text)),
+                Ok(ModelResponse::Done),
+            ];
+            Ok(Box::pin(futures::stream::iter(events)))
+        }
     }
+}
+
+/// Parse SSE data: lines from a chunk, extracting text tokens.
+fn parse_sse_chunk(text: &str) -> Vec<Result<ModelResponse>> {
+    let mut events = Vec::new();
+    let normalized = text.replace("\r\n", "\n");
+
+    for line in normalized.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            let trimmed = data.trim();
+            if trimmed == "[DONE]" || trimmed.is_empty() {
+                events.push(Ok(ModelResponse::Done));
+                continue;
+            }
+            // Try parsing as JSON first (OpenAI-compatible format)
+            if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                // OpenAI format: choices[0].delta.content
+                if let Some(token) = val["choices"][0]["delta"]["content"].as_str() {
+                    if !token.is_empty() {
+                        events.push(Ok(ModelResponse::Token(token.to_string())));
+                    }
+                }
+                // GitLab format: may have "content" or "response" at top level
+                else if let Some(token) = val["content"].as_str() {
+                    if !token.is_empty() {
+                        events.push(Ok(ModelResponse::Token(token.to_string())));
+                    }
+                } else if let Some(token) = val["response"].as_str() {
+                    if !token.is_empty() {
+                        events.push(Ok(ModelResponse::Token(token.to_string())));
+                    }
+                }
+                if val["choices"][0]["finish_reason"].as_str() == Some("stop") {
+                    events.push(Ok(ModelResponse::Done));
+                }
+            } else {
+                // Plain text data line — treat as a token
+                events.push(Ok(ModelResponse::Token(trimmed.to_string())));
+            }
+        }
+    }
+    events
 }
