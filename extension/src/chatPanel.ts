@@ -43,7 +43,7 @@ export class ChatPanel {
     const webviewUri = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js')
     );
-    const htmlPath = path.join(extensionUri.fsPath, 'webview', 'index.html');
+    const htmlPath = path.join(extensionUri.fsPath, 'dist', 'index.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
     html = html.replace(/\$\{cspNonce\}/g, nonce);
     html = html.replace('${webviewUri}', webviewUri.toString());

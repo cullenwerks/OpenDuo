@@ -1,4 +1,6 @@
 const esbuild = require('esbuild');
+const fs = require('fs');
+const path = require('path');
 
 const watch = process.argv.includes('--watch');
 
@@ -24,6 +26,13 @@ const webviewOpts = {
 };
 
 async function main() {
+  // Copy webview HTML template into dist/ so it's available in packaged extension
+  fs.mkdirSync('dist', { recursive: true });
+  fs.copyFileSync(
+    path.join('webview', 'index.html'),
+    path.join('dist', 'index.html')
+  );
+
   if (watch) {
     const extCtx = await esbuild.context(extensionOpts);
     const webCtx = await esbuild.context(webviewOpts);
