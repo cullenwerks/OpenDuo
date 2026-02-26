@@ -5,7 +5,9 @@ pub fn validate_chat_request(message: &str) -> Result<()> {
         return Err(anyhow!("Message cannot be empty"));
     }
     if message.len() > 10_000 {
-        return Err(anyhow!("Message exceeds maximum length of 10,000 characters"));
+        return Err(anyhow!(
+            "Message exceeds maximum length of 10,000 characters"
+        ));
     }
     Ok(())
 }

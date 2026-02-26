@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src ${cspNonce}; style-src 'unsafe-inline'; connect-src http://127.0.0.1:*;">
+        content="default-src 'none'; script-src 'nonce-${cspNonce}'; style-src 'unsafe-inline'; connect-src http://127.0.0.1:*;">
   <title>OpenDuo</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,6 +20,9 @@
 </head>
 <body>
   <div id="root"></div>
+  <script nonce="${cspNonce}">
+    window.__OPENDUO_SERVER_URL__ = '${serverUrl}';
+  </script>
   <script nonce="${cspNonce}" src="${webviewUri}"></script>
 </body>
 </html>

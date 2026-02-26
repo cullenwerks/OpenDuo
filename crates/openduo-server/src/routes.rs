@@ -11,20 +11,20 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tower_http::cors::{Any, CorsLayer};
+
 use crate::validation::validate_chat_request;
 
 #[derive(Clone)]
 pub struct AppState {
     pub provider: Arc<dyn LlmProvider>,
     pub tools: Arc<ToolRegistry>,
-    pub gitlab_url: String,
     pub history: Arc<Mutex<Vec<openduo_agent::provider::ChatMessage>>>,
 }
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
-    pub username: Option<String>,
 }
 
 pub async fn health() -> Json<Value> {
@@ -36,10 +36,16 @@ pub async fn tools_list(State(state): State<AppState>) -> Json<Value> {
 }
 
 pub fn build_router(state: AppState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
         .route("/health", get(health))
         .route("/tools", get(tools_list))
         .route("/chat", post(chat_handler))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -56,27 +62,20 @@ pub async fn chat_handler(
     } else {
         let provider = state.provider.clone();
         let tools = state.tools.clone();
-        let gitlab_url = state.gitlab_url.clone();
         let history = state.history.clone();
-        let username = req.username.unwrap_or_else(|| "user".to_string());
         let message = req.message;
 
         tokio::spawn(async move {
             let react_loop = ReactLoop::new(10);
-            let mut hist = history.lock().await;
+            // Clone history out to avoid holding mutex across async work
+            let mut hist = history.lock().await.clone();
             let _ = react_loop
-                .run(
-                    &message,
-                    &mut hist,
-                    &provider,
-                    &tools,
-                    &gitlab_url,
-                    &username,
-                    |token| {
-                        let _ = tx.send(token);
-                    },
-                )
+                .run(&message, &mut hist, &provider, &tools, |token| {
+                    let _ = tx.send(token);
+                })
                 .await;
+            // Write updated history back
+            *history.lock().await = hist;
             let _ = tx.send("[DONE]".to_string());
         });
     }
@@ -96,9 +95,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_returns_ok() {
-        // Build a minimal router with just health (no AppState needed)
         let app = Router::new().route("/health", get(health));
-        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }

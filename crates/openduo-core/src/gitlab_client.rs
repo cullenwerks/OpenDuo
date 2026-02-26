@@ -36,7 +36,8 @@ impl GitLabClient {
     #[instrument(skip(self))]
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        let resp = self.client
+        let resp = self
+            .client
             .get(self.api_url(path))
             .headers(headers)
             .send()
@@ -46,9 +47,14 @@ impl GitLabClient {
     }
 
     #[instrument(skip(self, body))]
-    pub async fn post<T: DeserializeOwned>(&self, path: &str, body: serde_json::Value) -> Result<T> {
+    pub async fn post<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<T> {
         let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        let resp = self.client
+        let resp = self
+            .client
             .post(self.api_url(path))
             .headers(headers)
             .json(&body)
@@ -61,7 +67,8 @@ impl GitLabClient {
     #[instrument(skip(self, body))]
     pub async fn put<T: DeserializeOwned>(&self, path: &str, body: serde_json::Value) -> Result<T> {
         let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        let resp = self.client
+        let resp = self
+            .client
             .put(self.api_url(path))
             .headers(headers)
             .json(&body)
@@ -73,11 +80,28 @@ impl GitLabClient {
 
     pub async fn get_raw(&self, url: &str) -> Result<reqwest::Response> {
         let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        Ok(self.client.get(url).headers(headers).send().await?.error_for_status()?)
+        Ok(self
+            .client
+            .get(url)
+            .headers(headers)
+            .send()
+            .await?
+            .error_for_status()?)
     }
 
-    pub async fn post_stream(&self, url: &str, body: serde_json::Value) -> Result<reqwest::Response> {
+    pub async fn post_stream(
+        &self,
+        url: &str,
+        body: serde_json::Value,
+    ) -> Result<reqwest::Response> {
         let headers = AuthHeaders::new(&self.pat).to_header_map()?;
-        Ok(self.client.post(url).headers(headers).json(&body).send().await?.error_for_status()?)
+        Ok(self
+            .client
+            .post(url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?)
     }
 }

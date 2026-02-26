@@ -1,9 +1,9 @@
 mod routes;
-mod sse;
 mod validation;
 
 use anyhow::Result;
 use openduo_agent::gitlab_provider::GitLabAiProvider;
+use openduo_agent::prompt::PromptBuilder;
 use openduo_core::config::Config;
 use openduo_tools::registry::ToolRegistry;
 use routes::{build_router, AppState};
@@ -22,11 +22,19 @@ async fn main() -> Result<()> {
     let port = config.server_port;
     let gitlab_url = config.gitlab_url.clone();
 
-    let provider = Arc::new(GitLabAiProvider::new(config.clone()));
+    let provider = Arc::new(GitLabAiProvider::new(&config)?);
     let tools = Arc::new(ToolRegistry::new(config));
-    let history = Arc::new(Mutex::new(Vec::new()));
+    // Initialize conversation history with system prompt
+    let history = Arc::new(Mutex::new(PromptBuilder::build_initial(
+        &gitlab_url,
+        "user",
+    )));
 
-    let state = AppState { provider, tools, gitlab_url, history };
+    let state = AppState {
+        provider,
+        tools,
+        history,
+    };
     let app = build_router(state);
 
     let addr = format!("127.0.0.1:{}", port);

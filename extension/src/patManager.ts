@@ -17,12 +17,16 @@ export class PatManager {
     await this.secrets.delete(PAT_KEY);
   }
 
-  async prompt(context: vscode.ExtensionContext): Promise<string | undefined> {
+  async prompt(): Promise<string | undefined> {
     const pat = await vscode.window.showInputBox({
       prompt: 'Enter your GitLab Personal Access Token (requires api, read_user, ai_features scopes)',
       password: true,
       ignoreFocusOut: true,
-      validateInput: (v) => v.startsWith('glpat-') ? null : 'PAT must start with glpat-',
+      validateInput: (v) => {
+        if (!v.startsWith('glpat-')) return 'PAT must start with glpat-';
+        if (v.length < 26) return 'PAT appears too short';
+        return null;
+      },
     });
     if (pat) {
       await this.store(pat);

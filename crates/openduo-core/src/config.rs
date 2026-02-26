@@ -17,6 +17,10 @@ impl Config {
             .unwrap_or_else(|_| "8745".to_string())
             .parse::<u16>()
             .map_err(|_| anyhow!("OPENDUO_PORT must be a valid port number"))?;
-        Ok(Self { gitlab_url, pat, server_port })
+        Ok(Self {
+            gitlab_url,
+            pat,
+            server_port,
+        })
     }
 }

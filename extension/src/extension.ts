@@ -17,8 +17,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Register: Configure PAT
   context.subscriptions.push(
     vscode.commands.registerCommand('openduo.configurePat', async () => {
-      await patManager.prompt(context);
-      vscode.window.showInformationMessage('OpenDuo: PAT saved successfully.');
+      const pat = await patManager.prompt();
+      if (pat) {
+        vscode.window.showInformationMessage('OpenDuo: PAT saved successfully.');
+      }
     })
   );
 

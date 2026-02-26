@@ -35,18 +35,41 @@ export function useChat(serverUrl: string) {
         body: JSON.stringify({ message: text, username }),
       });
 
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
+      if (!resp.ok) {
+        const errorText = await resp.text().catch(() => 'Unknown error');
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsg.id
+            ? { ...m, content: `Error: ${resp.status} ${errorText}`, isStreaming: false }
+            : m
+        ));
+        return;
+      }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
+      if (!resp.body) {
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsg.id
+            ? { ...m, content: 'Error: No response body', isStreaming: false }
+            : m
+        ));
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const result = await reader.read();
+        if (result.done) break;
+        const chunk = decoder.decode(result.value);
         const lines = chunk.split('\n');
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
-            if (data === '[DONE]') break;
+            if (data === '[DONE]') {
+              done = true;
+              break;
+            }
             setMessages(prev => prev.map(m =>
               m.id === assistantMsg.id
                 ? appendToken(m, data)
@@ -55,6 +78,13 @@ export function useChat(serverUrl: string) {
           }
         }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setMessages(prev => prev.map(m =>
+        m.id === assistantMsg.id
+          ? { ...m, content: `Connection error: ${message}`, isStreaming: false }
+          : m
+      ));
     } finally {
       setMessages(prev => prev.map(m =>
         m.id === assistantMsg.id ? { ...m, isStreaming: false } : m

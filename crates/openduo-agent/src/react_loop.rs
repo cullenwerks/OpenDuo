@@ -21,9 +21,7 @@ impl ReactLoop {
         history: &mut Vec<ChatMessage>,
         provider: &Arc<dyn LlmProvider>,
         tools: &ToolRegistry,
-        _gitlab_url: &str,
-        _username: &str,
-        on_token: impl Fn(String) + Send,
+        on_token: impl Fn(String) + Send + Sync,
     ) -> Result<String> {
         PromptBuilder::append_user(history, user_message);
         let tool_defs = tools.definitions();
@@ -31,7 +29,9 @@ impl ReactLoop {
 
         for iteration in 0..self.max_iterations {
             info!("ReAct iteration {}", iteration + 1);
-            let mut stream = provider.chat_stream(history.clone(), tool_defs.clone()).await?;
+            let mut stream = provider
+                .chat_stream(history.clone(), tool_defs.clone())
+                .await?;
             let mut current_response = String::new();
             let mut tool_call_name: Option<String> = None;
             let mut tool_call_args: Option<serde_json::Value> = None;
@@ -66,7 +66,10 @@ impl ReactLoop {
 
             if iteration + 1 == self.max_iterations {
                 warn!("Max ReAct iterations ({}) reached", self.max_iterations);
-                final_response = "I've reached the maximum number of reasoning steps. Please try rephrasing your question.".to_string();
+                final_response = "I've reached the maximum number of reasoning steps. \
+                    Please try rephrasing your question."
+                    .to_string();
+                PromptBuilder::append_assistant(history, &final_response);
             }
         }
 
