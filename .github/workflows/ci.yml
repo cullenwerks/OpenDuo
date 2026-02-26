@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: stable
+
+jobs:
+  # ── TEST ──────────────────────────────────────────────────────────
+
+  rust-fmt:
+    name: Rust Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  rust-clippy:
+    name: Rust Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-clippy-
+      - run: cargo clippy --workspace -- -D warnings
+
+  rust-test:
+    name: Rust Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+      - run: cargo test --workspace
+
+  rust-audit:
+    name: Rust Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  ts-test:
+    name: TypeScript Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  ts-lint:
+    name: TypeScript Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  ts-audit:
+    name: TypeScript Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  # ── BUILD ─────────────────────────────────────────────────────────
+
+  rust-build-windows:
+    name: Build Rust (Windows x64)
+    runs-on: ubuntu-latest
+    needs: [rust-fmt, rust-clippy, rust-test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install MinGW
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-windows-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-windows-
+      - run: cargo build --release --target x86_64-pc-windows-gnu -p openduo-server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openduo-server-windows
+          path: target/x86_64-pc-windows-gnu/release/openduo-server.exe
+          retention-days: 1
+
+  ts-build:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    needs: [ts-test, ts-lint]
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-dist
+          path: extension/dist/
+          retention-days: 1
+
+  # ── PACKAGE ───────────────────────────────────────────────────────
+
+  vsix-package:
+    name: Package VSIX
+    runs-on: ubuntu-latest
+    needs: [rust-build-windows, ts-build]
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: openduo-server-windows
+          path: extension/bin/
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-dist
+          path: extension/dist/
+      - run: npm ci
+      - name: Determine version tag
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME:-dev}" >> "$GITHUB_OUTPUT"
+      - run: npx vsce package --out openduo-windows-x64-${{ steps.version.outputs.tag }}.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-package
+          path: extension/openduo-windows-x64-*.vsix
+          retention-days: 7
+
+  # ── RELEASE ───────────────────────────────────────────────────────
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [vsix-package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix-package
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "OpenDuo ${{ github.ref_name }}"
+          body: "OpenDuo VS Code Extension — Windows x64"
+          files: openduo-windows-x64-*.vsix
