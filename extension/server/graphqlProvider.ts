@@ -65,10 +65,14 @@ export class GraphQLProvider implements LlmProvider {
     userGid: string,
     clientSubId: string,
   ): AsyncGenerator<ModelResponse> {
-    // Build the GraphQL subscription query
+    // Build the GraphQL subscription query.
+    // All three filter arguments (userId, resourceId, clientSubscriptionId)
+    // must be present so the subscription topic matches what the server
+    // publishes when the aiAction mutation completes.  For Duo Chat the
+    // resourceId is the user's own GID.
     const subQuery =
-      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { ' +
-      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { ' +
+      'subscription OpenDuoCompletion($userId: UserID!, $resourceId: AiModelID!, $clientSubscriptionId: String!) { ' +
+      'aiCompletionResponse(userId: $userId, resourceId: $resourceId, clientSubscriptionId: $clientSubscriptionId) { ' +
       'content requestId errors } }';
 
     // GitLab's GraphqlChannel#subscribed reads query, variables, and
@@ -79,7 +83,7 @@ export class GraphQLProvider implements LlmProvider {
       channel: 'GraphqlChannel',
       channelId,
       query: subQuery,
-      variables: { userId: userGid, clientSubscriptionId: clientSubId },
+      variables: { userId: userGid, resourceId: userGid, clientSubscriptionId: clientSubId },
       operationName: 'OpenDuoCompletion',
     });
 
