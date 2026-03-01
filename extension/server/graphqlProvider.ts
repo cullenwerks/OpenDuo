@@ -54,7 +54,9 @@ export class GraphQLProvider implements LlmProvider {
     userGid: string,
     clientSubId: string,
   ): AsyncIterable<ModelResponse> {
-    const identifier = '{"channel":"GraphqlChannel"}';
+    // Include a unique channelId so GitLab routes subscription events correctly
+    const channelId = randomUUID();
+    const identifier = JSON.stringify({ channel: 'GraphqlChannel', channelId });
 
     // Step 1: wait for ActionCable "welcome"
     await waitForType(ws, 'welcome');
@@ -74,16 +76,21 @@ export class GraphQLProvider implements LlmProvider {
     const subData = JSON.stringify({
       query: subQuery,
       variables: { userId: userGid, clientSubscriptionId: clientSubId },
+      operationName: 'OpenDuoCompletion',
+      action: 'execute',
     });
 
     ws.send(
       JSON.stringify({ command: 'message', identifier, data: subData }),
     );
 
-    // Step 5: fire the aiAction mutation via HTTP
+    // Step 5: wait for subscription acknowledgment before firing the mutation
+    await waitForSubscriptionAck(ws);
+
+    // Step 6: fire the aiAction mutation via HTTP
     await this.fireAiAction(content, clientSubId);
 
-    // Step 6: read events from the subscription
+    // Step 7: read events from the subscription
     yield* readSubscriptionEvents(ws, clientSubId);
   }
 
@@ -160,6 +167,38 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
       try {
         const val = JSON.parse(String(data));
         if (val.type === expectedType) {
+          clearTimeout(timeout);
+          ws.removeListener('message', onMessage);
+          resolve();
+        }
+      } catch {
+        // ignore non-JSON frames
+      }
+    }
+    ws.on('message', onMessage);
+  });
+}
+
+/**
+ * After sending the subscription query with action:"execute", GitLab responds
+ * with a message whose result.data is null and result.more is true. Wait for
+ * this acknowledgment so we know the subscription is registered before firing
+ * the mutation.
+ */
+function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.removeListener('message', onMessage);
+      reject(new Error('Timeout waiting for subscription acknowledgment'));
+    }, 10_000);
+
+    function onMessage(data: WebSocket.Data) {
+      try {
+        const val = JSON.parse(String(data));
+        // Ignore ActionCable control frames (ping, etc.)
+        if (val.type) return;
+        // The ack message has result.more === true with null/no data
+        if (val.message?.result && val.message.result.more === true) {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
           resolve();
