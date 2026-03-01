@@ -136,5 +136,16 @@ export function useChat(serverUrl: string) {
     }
   }, [serverUrl, cancelRequest]);
 
-  return { messages, isLoading, sendMessage, cancelRequest };
+  const resetChat = useCallback(async () => {
+    cancelRequest();
+    setMessages([]);
+    setIsLoading(false);
+    try {
+      await fetch(`${serverUrl}/chat/reset`, { method: 'POST' });
+    } catch {
+      // Server reset is best-effort; UI is already cleared
+    }
+  }, [serverUrl, cancelRequest]);
+
+  return { messages, isLoading, sendMessage, cancelRequest, resetChat };
 }

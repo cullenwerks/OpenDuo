@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface Props {
   onSend: (text: string) => void;
@@ -7,9 +7,25 @@ interface Props {
   showCancel?: boolean;
 }
 
+const MIN_ROWS = 1;
+const MAX_ROWS = 6;
+const LINE_HEIGHT = 20; // approximate px per row
+
 export const InputBar: React.FC<Props> = ({ onSend, onCancel, disabled, showCancel }) => {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const maxHeight = MAX_ROWS * LINE_HEIGHT;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, []);
+
+  useEffect(() => {
+    autoResize();
+  }, [value, autoResize]);
 
   const handleSend = () => {
     const trimmed = value.trim();
@@ -31,6 +47,7 @@ export const InputBar: React.FC<Props> = ({ onSend, onCancel, disabled, showCanc
       padding: '0.75rem 1rem',
       gap: '0.5rem',
       borderTop: '1px solid var(--vscode-panel-border)',
+      alignItems: 'flex-end',
     }}>
       <textarea
         ref={textareaRef}
@@ -38,8 +55,8 @@ export const InputBar: React.FC<Props> = ({ onSend, onCancel, disabled, showCanc
         onChange={e => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        placeholder="Ask GitLab Duo anything... (Enter to send, Shift+Enter for newline)"
-        rows={2}
+        placeholder="Ask anything... (Enter to send, Shift+Enter for newline)"
+        rows={MIN_ROWS}
         style={{
           flex: 1,
           resize: 'none',
@@ -50,6 +67,8 @@ export const InputBar: React.FC<Props> = ({ onSend, onCancel, disabled, showCanc
           borderRadius: '4px',
           fontFamily: 'inherit',
           fontSize: '0.9rem',
+          lineHeight: `${LINE_HEIGHT}px`,
+          overflow: 'auto',
         }}
       />
       {showCancel ? (
