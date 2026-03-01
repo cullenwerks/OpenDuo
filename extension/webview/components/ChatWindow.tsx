@@ -19,7 +19,12 @@ export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClic
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use instant scroll while a response is streaming (fires on every token)
+    // so we don't stack up hundreds of competing smooth-scroll animations.
+    // Switch to smooth only when a new discrete message arrives.
+    const lastMsg = messages[messages.length - 1];
+    const behavior = lastMsg?.isStreaming ? 'auto' : 'smooth';
+    bottomRef.current?.scrollIntoView({ behavior });
   }, [messages]);
 
   const lastMessage = messages[messages.length - 1];

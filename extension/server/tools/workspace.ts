@@ -178,6 +178,21 @@ export function workspaceTools(
         const searchRoot = safePath(root, relPath);
         if (!searchRoot) return 'Error: Path is outside the workspace.';
 
+        // Validate the pattern before compiling to avoid throwing inside the
+        // recursive search and to give the LLM a clear error message.
+        if (!pattern || typeof pattern !== 'string') {
+          return 'Error: pattern must be a non-empty string.';
+        }
+        if (pattern.length > 500) {
+          return 'Error: pattern is too long (max 500 characters).';
+        }
+        let compiledRe: RegExp;
+        try {
+          compiledRe = new RegExp(pattern, 'gi');
+        } catch (e) {
+          return `Error: Invalid regex pattern — ${(e as Error).message}`;
+        }
+
         const results: string[] = [];
         const globExt = fileGlob?.startsWith('*.') ? fileGlob.slice(1) : null;
 
@@ -207,15 +222,16 @@ export function workspaceTools(
 
                 const content = fs.readFileSync(full, 'utf-8');
                 const lines = content.split('\n');
-                const re = new RegExp(pattern, 'gi');
+                // Re-use the compiled regex but reset lastIndex before each file
+                compiledRe.lastIndex = 0;
 
                 for (let i = 0; i < lines.length; i++) {
                   if (results.length >= MAX_SEARCH_RESULTS) break;
-                  if (re.test(lines[i])) {
+                  if (compiledRe.test(lines[i])) {
                     const rel = path.relative(root, full).replace(/\\/g, '/');
                     results.push(`${rel}:${i + 1}: ${lines[i].trim()}`);
                   }
-                  re.lastIndex = 0;
+                  compiledRe.lastIndex = 0;
                 }
               } catch {
                 // Skip files we can't read

@@ -20,8 +20,11 @@ export const ChatApp: React.FC = () => {
 
   const { messages, isLoading, sendMessage, cancelRequest, resetChat } = useChat(SERVER_URL, getActiveFolder);
 
-  // Fetch workspace folders from server
+  // Fetch workspace folders whenever the server becomes reachable.
+  // Re-running on `connected` means we pick up changes when the server
+  // restarts with new workspace folders (e.g. after settings change).
   useEffect(() => {
+    if (!connected) return;
     const fetchWorkspaces = async () => {
       try {
         const resp = await fetch(`${SERVER_URL}/workspaces`);
@@ -37,7 +40,7 @@ export const ChatApp: React.FC = () => {
       }
     };
     fetchWorkspaces();
-  }, []);
+  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const checkHealth = async () => {

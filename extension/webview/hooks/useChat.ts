@@ -72,12 +72,13 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
 
-      // BUG FIX: Use a buffer to accumulate partial lines across chunks.
-      // Previously, if a "data: some text" line was split across two network
-      // chunks, the second half would be lost.  Now we keep a buffer and only
-      // process complete lines (those followed by '\n').
+      // SSE events are delimited by blank lines (\n\n).  Buffer incoming
+      // chunks and process complete events so that multi-line tokens
+      // (tokens containing \n emitted by the server as multiple data: fields
+      // within one event) are reassembled correctly before dispatch.
       let buffer = '';
       let done = false;
+      const EVENT_DELIMITER = '\n\n';
 
       while (!done) {
         const result = await reader.read();
@@ -85,14 +86,30 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
 
         buffer += decoder.decode(result.value, { stream: true });
 
-        const lines = buffer.split('\n');
-        // Keep the last (potentially incomplete) line in the buffer
-        buffer = lines.pop() ?? '';
+        // Drain all complete events from the buffer
+        let eventEnd: number;
+        while ((eventEnd = buffer.indexOf(EVENT_DELIMITER)) !== -1) {
+          const rawEvent = buffer.slice(0, eventEnd);
+          buffer = buffer.slice(eventEnd + EVENT_DELIMITER.length);
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
+          if (!rawEvent.trim()) continue;
+
+          // Per SSE spec: collect all data: fields and join with \n so that
+          // tokens containing newlines are faithfully reconstructed.
+          const dataLines: string[] = [];
+          for (const line of rawEvent.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              dataLines.push(trimmed.slice(6));
+            } else if (trimmed === 'data:') {
+              // Empty data field represents an empty string (becomes a \n
+              // when joined with adjacent data fields).
+              dataLines.push('');
+            }
+          }
+
+          if (dataLines.length === 0) continue;
+          const data = dataLines.join('\n');
 
           if (data === '[DONE]') {
             done = true;

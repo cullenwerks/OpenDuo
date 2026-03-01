@@ -4,20 +4,28 @@ import type { ChatMessage } from '../hooks/useChat';
 
 interface Props { message: ChatMessage; }
 
-/** Regex to detect tool-call status lines like "[Calling list_issues...]" */
-const TOOL_CALL_RE = /^\[Calling \w+\.\.\.\]$/;
-
-// Configure marked for safe, synchronous rendering
+// Configure marked for safe, synchronous rendering.
+// The html renderer override strips raw HTML blocks emitted by the LLM so
+// they cannot inject event-handler-based scripts (e.g. <img onerror=...>)
+// that would bypass the webview's CSP nonce restriction on <script> tags.
+marked.use({
+  renderer: {
+    // Return an empty string for raw HTML blocks — this removes literal HTML
+    // that the LLM might emit while leaving all markdown syntax rendering intact.
+    html(): string { return ''; },
+  },
+});
 marked.setOptions({ async: false, breaks: true, gfm: true });
 
 /**
  * Renders markdown content as HTML using `marked`.
  * Tool-call status lines get special styling.
+ * Raw HTML emitted by the LLM is stripped to prevent XSS.
  */
 function renderMarkdown(text: string): string {
-  // Process tool-call lines before markdown rendering
+  // Style tool-call status lines before markdown rendering
   const processed = text.replace(
-    /^\[Calling \w+\.\.\.\]$/gm,
+    /^\[Calling \w[\w.]*\.\.\.\]$/gm,
     (match) => `<div class="tool-call">${match}</div>`,
   );
   return marked.parse(processed) as string;

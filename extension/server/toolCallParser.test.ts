@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseToolCalls, hasPartialToolCall } from './toolCallParser';
+import { parseToolCalls, hasPartialToolCall, getStreamableText } from './toolCallParser';
 
 describe('parseToolCalls', () => {
   it('returns empty toolCalls when no tool_call blocks present', () => {
@@ -53,6 +53,47 @@ And also:
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls[0].name).toBe('get_current_user');
     expect(result.toolCalls[0].arguments).toEqual({});
+  });
+});
+
+describe('getStreamableText', () => {
+  it('returns full text when no tool_call blocks present', () => {
+    expect(getStreamableText('Hello world')).toBe('Hello world');
+  });
+
+  it('strips a complete tool_call block', () => {
+    const raw = 'Narrative\n<tool_call>\n{"name":"t"}\n</tool_call>';
+    expect(getStreamableText(raw)).toBe('Narrative\n');
+  });
+
+  it('stops at an unclosed tool_call opening tag', () => {
+    const raw = 'Before <tool_call>{"name":';
+    expect(getStreamableText(raw)).toBe('Before ');
+  });
+
+  it('strips complete block and returns text after it', () => {
+    const raw = 'A<tool_call>{"name":"t"}</tool_call>B';
+    expect(getStreamableText(raw)).toBe('AB');
+  });
+
+  it('holds back trailing chars that could be start of <tool_call>', () => {
+    // The single "<" at the end could be the start of "<tool_call>"
+    expect(getStreamableText('text <')).toBe('text ');
+    expect(getStreamableText('text <t')).toBe('text ');
+    expect(getStreamableText('text <to')).toBe('text ');
+  });
+
+  it('does NOT hold back trailing text that cannot start <tool_call>', () => {
+    // "z" cannot be the start of "<tool_call>"
+    expect(getStreamableText('text z')).toBe('text z');
+    // "<x" cannot grow into "<tool_call>" (wrong second char)
+    expect(getStreamableText('text <x')).toBe('text <x');
+  });
+
+  it('handles complete block followed by partial opening', () => {
+    const raw = 'A<tool_call>{"name":"t"}</tool_call>B<tool_call>{"na';
+    // After removing complete block: 'AB<tool_call>{"na' → stops at <tool_call>
+    expect(getStreamableText(raw)).toBe('AB');
   });
 });
 

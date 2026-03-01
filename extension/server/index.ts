@@ -197,7 +197,14 @@ const server = http.createServer(async (req, res) => {
           histCopy,
           provider,
           tools,
-          (token) => { safeWrite(res, `data: ${token}\n\n`); },
+          (token) => {
+            // Newlines in a token would corrupt the SSE frame boundary (\n\n).
+            // Replace literal newlines with the SSE multi-line continuation
+            // format so the client reassembles them correctly.
+            const lines = token.split('\n');
+            const ssePayload = lines.map(l => `data: ${l}`).join('\n');
+            safeWrite(res, `${ssePayload}\n\n`);
+          },
           abortController.signal,
         );
 
@@ -212,13 +219,18 @@ const server = http.createServer(async (req, res) => {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== 'Chat request aborted') {
           console.error(`[react] Error: ${msg}`);
-          safeWrite(res, `data: Error: ${msg}\n\n`);
+          // Use [ERROR] prefix so the client can distinguish errors from
+          // regular response text and display them with appropriate styling.
+          // Collapse newlines so the error doesn't split into multiple SSE events.
+          const safeMsg = msg.replace(/\n/g, ' ');
+          safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[server] ${msg}`);
-      safeWrite(res, `data: Error: ${msg}\n\n`);
+      const safeMsg = msg.replace(/\n/g, ' ');
+      safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
     } finally {
       safeWrite(res, 'data: [DONE]\n\n');
       if (!res.writableEnded) res.end();
