@@ -8,6 +8,8 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
+    "Chat",
     "Other"
   ],
   "activationEvents": [
@@ -17,6 +19,7 @@
     "type": "git",
     "url": "https://gitlab.com/cullen.guimond/openduo.git"
   },
+  "icon": "media/icon.png",
   "license": "MIT",
   "main": "./dist/extension.js",
   "contributes": {
