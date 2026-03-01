@@ -180,9 +180,10 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
 }
 
 /**
- * After sending the subscription query with action:"execute", GitLab responds
- * with a message whose result.data is null and result.more is true. Wait for
- * this acknowledgment so we know the subscription is registered before firing
+ * After sending the subscription query with action:"execute", GitLab's
+ * GraphqlChannel#execute transmits {result: {data: null}, more: true}.
+ * ActionCable wraps that as {identifier: "...", message: {result: ..., more: true}}.
+ * Wait for this so we know the subscription is registered before firing
  * the mutation.
  */
 function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
@@ -197,8 +198,8 @@ function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
         const val = JSON.parse(String(data));
         // Ignore ActionCable control frames (ping, etc.)
         if (val.type) return;
-        // The ack message has result.more === true with null/no data
-        if (val.message?.result && val.message.result.more === true) {
+        // The ack has `more` as a sibling of `result`, not nested inside it
+        if (val.message?.result && val.message.more === true) {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
           resolve();
