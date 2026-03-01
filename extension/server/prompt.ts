@@ -1,3 +1,4 @@
+import type { WorkspaceFolder } from './config';
 import type { ChatMessage, ToolDefinition } from './types';
 
 export function buildInitialHistory(gitlabUrl: string): ChatMessage[] {
@@ -18,10 +19,11 @@ export function buildInitialHistory(gitlabUrl: string): ChatMessage[] {
 export function buildSystemPrompt(
   gitlabUrl: string,
   tools: ToolDefinition[],
+  activeFolder?: WorkspaceFolder,
 ): string {
   const parts: string[] = [
     `You are OpenDuo, an AI assistant integrated with GitLab at ${gitlabUrl}. ` +
-    'You help the user interact with their GitLab instance.',
+    'You help the user interact with their GitLab instance and their local workspace.',
     '',
     'RULES:',
     '- Always think step-by-step.',
@@ -29,6 +31,15 @@ export function buildSystemPrompt(
     '- Never fabricate issue numbers, pipeline IDs, or commit hashes.',
     '- When you have enough information, provide a clear, concise answer.',
   ];
+
+  if (activeFolder) {
+    parts.push('');
+    parts.push('WORKSPACE CONTEXT:');
+    parts.push(`The user has workspace folder "${activeFolder.name}" open at: ${activeFolder.path}`);
+    parts.push('Use the workspace tools (read_workspace_file, list_workspace_files, search_workspace, get_workspace_info) to inspect local files.');
+    parts.push('Use repository tools (get_file, list_files, search_code) for remote GitLab repository files.');
+    parts.push('When the user asks about their code or files, prefer workspace tools first.');
+  }
 
   if (tools.length > 0) {
     parts.push('');

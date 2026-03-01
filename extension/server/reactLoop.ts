@@ -21,10 +21,10 @@ export class ReactLoop {
     appendUser(history, userMessage);
     const toolDefs = tools.definitions();
 
-    // Update the system prompt with tool definitions so the LLM knows how to
-    // call tools via <tool_call> blocks.
+    // Update the system prompt with tool definitions and workspace context
+    // so the LLM knows how to call tools via <tool_call> blocks.
     if (history.length > 0 && history[0].role === 'system') {
-      history[0].content = buildSystemPrompt(this.gitlabUrl, toolDefs);
+      history[0].content = buildSystemPrompt(this.gitlabUrl, toolDefs, tools.activeFolder);
     }
 
     let finalResponse = '';
@@ -58,8 +58,10 @@ export class ReactLoop {
             providerToolCalls.push(event.toolCall);
             break;
           case 'done':
+            // Provider has signalled end-of-stream — stop consuming.
             break;
         }
+        if (event.type === 'done') break;
       }
 
       // Parse text-based tool calls from the accumulated response.

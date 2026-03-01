@@ -1,4 +1,4 @@
-import type { Config } from '../config';
+import type { Config, WorkspaceFolder } from '../config';
 import { GitLabClient } from '../gitlabClient';
 import type { ToolDefinition } from '../types';
 import type { Tool } from './tool';
@@ -17,13 +17,20 @@ import { snippetTools } from './snippets';
 import { groupTools } from './groups';
 import { environmentTools } from './environments';
 import { wikiTools } from './wiki';
+import { workspaceTools } from './workspace';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
+  private _activeFolder: WorkspaceFolder | undefined;
+  readonly workspaceFolders: WorkspaceFolder[];
 
   constructor(config: Config) {
     const client = new GitLabClient(config);
     this.tools = new Map();
+    this.workspaceFolders = config.workspaceFolders;
+
+    // Default to the first workspace folder if available
+    this._activeFolder = config.workspaceFolders[0];
 
     const allTools = [
       // REST API tools
@@ -42,11 +49,29 @@ export class ToolRegistry {
       ...wikiTools(client),
       // GraphQL API tools (richer queries)
       ...graphqlQueryTools(client),
+      // Local workspace tools (read, list, search local files)
+      ...workspaceTools(
+        config.workspaceFolders,
+        () => this._activeFolder,
+      ),
     ];
 
     for (const tool of allTools) {
       this.tools.set(tool.name, tool);
     }
+  }
+
+  get activeFolder(): WorkspaceFolder | undefined {
+    return this._activeFolder;
+  }
+
+  setActiveFolder(name: string): boolean {
+    const folder = this.workspaceFolders.find(f => f.name === name);
+    if (folder) {
+      this._activeFolder = folder;
+      return true;
+    }
+    return false;
   }
 
   definitions(): ToolDefinition[] {

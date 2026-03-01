@@ -47,10 +47,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const chatProvider = cfg.get<string>('chatProvider', 'rest');
+
+      // Collect open workspace folders so the server can provide local
+      // file tools (read, list, search) for agentic workspace access.
+      const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).map(f => ({
+        name: f.name,
+        path: f.uri.fsPath,
+      }));
+
       const desiredEnv: Record<string, string> = {
         GITLAB_URL: gitlabUrl,
         GITLAB_PAT: pat,
         OPENDUO_CHAT_PROVIDER: chatProvider,
+        OPENDUO_WORKSPACE_FOLDERS: JSON.stringify(workspaceFolders),
       };
 
       // Restart the server if settings changed since the last launch.
