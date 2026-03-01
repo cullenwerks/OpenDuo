@@ -3,7 +3,9 @@ mod validation;
 
 use anyhow::Result;
 use openduo_agent::gitlab_provider::GitLabAiProvider;
+use openduo_agent::graphql_provider::GraphQLProvider;
 use openduo_agent::prompt::PromptBuilder;
+use openduo_agent::provider::LlmProvider;
 use openduo_core::config::Config;
 use openduo_tools::registry::ToolRegistry;
 use routes::{build_router, AppState};
@@ -29,7 +31,16 @@ async fn main() -> Result<()> {
     let port = config.server_port;
     let gitlab_url = config.gitlab_url.clone();
 
-    let provider = Arc::new(GitLabAiProvider::new(&config)?);
+    let provider: Arc<dyn LlmProvider> = match config.chat_provider.as_str() {
+        "graphql" => {
+            info!("Using GraphQL+ActionCable provider (gitlab.com mode)");
+            Arc::new(GraphQLProvider::new(&config)?)
+        }
+        _ => {
+            info!("Using REST provider (self-managed EE mode)");
+            Arc::new(GitLabAiProvider::new(&config)?)
+        }
+    };
     let tools = Arc::new(ToolRegistry::new(config)?);
     // Initialize conversation history with system prompt
     let history = Arc::new(Mutex::new(PromptBuilder::build_initial(&gitlab_url)));
