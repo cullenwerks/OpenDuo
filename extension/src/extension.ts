@@ -11,7 +11,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log('OpenDuo activating...');
 
   const patManager = new PatManager(context.secrets);
-  const binaryPath = path.join(context.extensionPath, 'bin', 'openduo-server.exe');
+  const serverScript = path.join(context.extensionPath, 'dist', 'server.js');
 
   // Register: Configure PAT
   context.subscriptions.push(
@@ -46,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const chatProvider = cfg.get<string>('chatProvider', 'rest');
       if (!serverManager || !serverManager.isRunning()) {
-        serverManager = new ServerManager(binaryPath, {
+        serverManager = new ServerManager(serverScript, {
           GITLAB_URL: gitlabUrl,
           GITLAB_PAT: pat,
           OPENDUO_CHAT_PROVIDER: chatProvider,

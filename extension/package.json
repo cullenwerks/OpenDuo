@@ -40,7 +40,10 @@
         },
         "openduo.chatProvider": {
           "type": "string",
-          "enum": ["rest", "graphql"],
+          "enum": [
+            "rest",
+            "graphql"
+          ],
           "enumDescriptions": [
             "REST endpoint (/api/v4/chat/completions) — for self-managed GitLab EE instances",
             "GraphQL + ActionCable WebSocket — for GitLab.com"
@@ -55,7 +58,6 @@
     "build": "node esbuild.config.js",
     "watch": "node esbuild.config.js --watch",
     "test": "vitest run",
-    "prepackage": "cd .. && cargo build --release -p openduo-server && mkdir -p extension/bin && cp target/release/openduo-server.exe extension/bin/",
     "package": "npm run build && vsce package"
   },
   "devDependencies": {
@@ -63,6 +65,7 @@
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
     "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.18.1",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.20.0",
     "typescript": "^5.3.0",
@@ -70,6 +73,7 @@
   },
   "dependencies": {
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "ws": "^8.19.0"
   }
 }

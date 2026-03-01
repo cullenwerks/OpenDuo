@@ -1,9 +1,8 @@
 # Worktrees
 .worktrees/
 
-# Rust
+# Build artifacts
 target/
-target2/
 
 # Node
 extension/node_modules/

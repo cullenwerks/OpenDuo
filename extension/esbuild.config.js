@@ -25,6 +25,16 @@ const webviewOpts = {
   sourcemap: true,
 };
 
+const serverOpts = {
+  entryPoints: ['server/index.ts'],
+  bundle: true,
+  outfile: 'dist/server.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node20',
+  sourcemap: true,
+};
+
 async function main() {
   // Copy webview HTML template into dist/ so it's available in packaged extension
   fs.mkdirSync('dist', { recursive: true });
@@ -36,12 +46,15 @@ async function main() {
   if (watch) {
     const extCtx = await esbuild.context(extensionOpts);
     const webCtx = await esbuild.context(webviewOpts);
+    const srvCtx = await esbuild.context(serverOpts);
     await extCtx.watch();
     await webCtx.watch();
+    await srvCtx.watch();
     console.log('Watching for changes...');
   } else {
     await esbuild.build(extensionOpts);
     await esbuild.build(webviewOpts);
+    await esbuild.build(serverOpts);
   }
 }
 
