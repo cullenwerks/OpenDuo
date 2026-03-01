@@ -23,12 +23,17 @@ marked.setOptions({ async: false, breaks: true, gfm: true });
  * Raw HTML emitted by the LLM is stripped to prevent XSS.
  */
 function renderMarkdown(text: string): string {
-  // Style tool-call status lines before markdown rendering
-  const processed = text.replace(
-    /^\[Calling \w[\w.]*\.\.\.\]$/gm,
-    (match) => `<div class="tool-call">${match}</div>`,
+  // First pass: render markdown to HTML (raw LLM HTML gets stripped by
+  // the html() renderer override configured above).
+  let html = marked.parse(text) as string;
+
+  // Second pass: style tool-call status lines AFTER markdown rendering
+  // so the inserted <div> tags aren't stripped by the html() override.
+  html = html.replace(
+    /\[Calling (\w[\w.]*)\.\.\.\]/g,
+    (_match, name) => `<div class="tool-call">[Calling ${name}...]</div>`,
   );
-  return marked.parse(processed) as string;
+  return html;
 }
 
 export const MessageBubble: React.FC<Props> = ({ message }) => {

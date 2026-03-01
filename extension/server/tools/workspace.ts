@@ -252,6 +252,86 @@ export function workspaceTools(
     },
 
     {
+      name: 'write_workspace_file',
+      description:
+        "Write or create a file in the user's local workspace. " +
+        'Use this to create new files or overwrite existing ones. ' +
+        'Parent directories are created automatically if needed.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'File path relative to the workspace root (e.g. "src/utils.ts")',
+          },
+          content: {
+            type: 'string',
+            description: 'The full content to write to the file',
+          },
+        },
+        required: ['file_path', 'content'],
+      }),
+      async execute(args) {
+        const root = activeRoot();
+        const filePath = args.file_path as string;
+        const content = args.content as string;
+        const abs = safePath(root, filePath);
+        if (!abs) return 'Error: Path is outside the workspace.';
+
+        if (isBinary(abs)) return 'Error: Cannot write binary files.';
+
+        try {
+          // Create parent directories if they don't exist
+          const dir = path.dirname(abs);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+          fs.writeFileSync(abs, content, 'utf-8');
+          return `Successfully wrote ${content.length} bytes to ${filePath}`;
+        } catch (e) {
+          return `Error: ${(e as Error).message}`;
+        }
+      },
+    },
+
+    {
+      name: 'delete_workspace_file',
+      description:
+        "Delete a file from the user's local workspace. " +
+        'This permanently removes the file from disk.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'File path relative to the workspace root (e.g. "old-file.md")',
+          },
+        },
+        required: ['file_path'],
+      }),
+      async execute(args) {
+        const root = activeRoot();
+        const filePath = args.file_path as string;
+        const abs = safePath(root, filePath);
+        if (!abs) return 'Error: Path is outside the workspace.';
+
+        try {
+          const stat = fs.statSync(abs);
+          if (stat.isDirectory()) {
+            return 'Error: Path is a directory. Only files can be deleted.';
+          }
+          fs.unlinkSync(abs);
+          return `Successfully deleted ${filePath}`;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+            return `Error: File not found: ${filePath}`;
+          }
+          return `Error: ${(e as Error).message}`;
+        }
+      },
+    },
+
+    {
       name: 'get_workspace_info',
       description:
         "Get information about the user's active workspace — name, root path, " +
