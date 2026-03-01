@@ -181,25 +181,29 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
 
 /**
  * After sending the subscription query with action:"execute", GitLab's
- * GraphqlChannel#execute transmits {result: {data: null}, more: true}.
+ * GraphqlChannel#execute may transmit {result: {data: null}, more: true}.
  * ActionCable wraps that as {identifier: "...", message: {result: ..., more: true}}.
- * Wait for this so we know the subscription is registered before firing
- * the mutation.
+ * We wait briefly for this ack so we know the subscription is registered before
+ * firing the mutation.  However, some GitLab versions omit the result field or
+ * do not send the ack at all.  In those cases we resolve after a short timeout
+ * and rely on the fact that confirm_subscription already guarantees the channel
+ * is active on the server before we get here.
  */
 function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       ws.removeListener('message', onMessage);
-      reject(new Error('Timeout waiting for subscription acknowledgment'));
-    }, 10_000);
+      // Proceed even without an explicit ack – the subscription should be active.
+      resolve();
+    }, 3_000);
 
     function onMessage(data: WebSocket.Data) {
       try {
         const val = JSON.parse(String(data));
         // Ignore ActionCable control frames (ping, etc.)
         if (val.type) return;
-        // The ack has `more` as a sibling of `result`, not nested inside it
-        if (val.message?.result && val.message.more === true) {
+        // Accept any non-control message with more:true (result field is optional).
+        if (val.message?.more === true) {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
           resolve();
