@@ -12,6 +12,11 @@ import { userTools } from './users';
 import { cicdTools } from './cicd';
 import { milestoneTools } from './milestones';
 import { labelTools } from './labels';
+import { graphqlQueryTools } from './graphqlQueries';
+import { snippetTools } from './snippets';
+import { groupTools } from './groups';
+import { environmentTools } from './environments';
+import { wikiTools } from './wiki';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -21,6 +26,7 @@ export class ToolRegistry {
     this.tools = new Map();
 
     const allTools = [
+      // REST API tools
       ...issueTools(client),
       ...mergeRequestTools(client),
       ...pipelineTools(client),
@@ -30,6 +36,12 @@ export class ToolRegistry {
       ...cicdTools(client),
       ...milestoneTools(client),
       ...labelTools(client),
+      ...snippetTools(client),
+      ...groupTools(client),
+      ...environmentTools(client),
+      ...wikiTools(client),
+      // GraphQL API tools (richer queries)
+      ...graphqlQueryTools(client),
     ];
 
     for (const tool of allTools) {

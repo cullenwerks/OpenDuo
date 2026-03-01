@@ -62,6 +62,20 @@ export class GitLabClient {
     return resp.text();
   }
 
+  async delete<T = unknown>(path: string): Promise<T> {
+    const resp = await fetch(this.apiUrl(path), {
+      method: 'DELETE',
+      headers: privateTokenHeaders(this.pat),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`GitLab API DELETE ${path} returned ${resp.status}: ${text}`);
+    }
+    // DELETE often returns 204 No Content
+    if (resp.status === 204) return {} as T;
+    return resp.json() as Promise<T>;
+  }
+
   async postStream(url: string, body: unknown): Promise<Response> {
     const resp = await fetch(url, {
       method: 'POST',
@@ -73,5 +87,33 @@ export class GitLabClient {
       throw new Error(`GitLab API POST stream ${url} returned ${resp.status}: ${text}`);
     }
     return resp;
+  }
+
+  /**
+   * Execute a GraphQL query against GitLab's `/api/graphql` endpoint.
+   * Returns the `data` portion of the response, or throws on errors.
+   */
+  async graphql<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T> {
+    const url = `${this.baseUrl}/api/graphql`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: privateTokenHeaders(this.pat),
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`GitLab GraphQL returned ${resp.status}: ${text}`);
+    }
+    const json = (await resp.json()) as {
+      data?: T;
+      errors?: { message: string }[];
+    };
+    if (json.errors?.length) {
+      throw new Error(`GraphQL errors: ${json.errors.map((e) => e.message).join('; ')}`);
+    }
+    return json.data as T;
   }
 }

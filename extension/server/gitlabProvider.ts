@@ -2,6 +2,7 @@ import { bearerHeaders } from './auth';
 import type { Config } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse, ToolDefinition } from './types';
+import { flattenMessages } from './prompt';
 
 export class GitLabAiProvider implements LlmProvider {
   private readonly gatewayUrl: string;
@@ -16,9 +17,10 @@ export class GitLabAiProvider implements LlmProvider {
     messages: ChatMessage[],
     _tools: ToolDefinition[],
   ): AsyncIterable<ModelResponse> {
-    // Extract the last user message as the content to send
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const content = lastUser?.content ?? '';
+    // Flatten the full conversation (system prompt + history + tool results)
+    // into a single content string so the LLM sees the complete context,
+    // including tool definitions and prior tool results.
+    const content = flattenMessages(messages);
 
     const resp = await fetch(this.gatewayUrl, {
       method: 'POST',

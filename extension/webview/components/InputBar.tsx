@@ -2,10 +2,12 @@ import React, { useState, useRef } from 'react';
 
 interface Props {
   onSend: (text: string) => void;
+  onCancel?: () => void;
   disabled: boolean;
+  showCancel?: boolean;
 }
 
-export const InputBar: React.FC<Props> = ({ onSend, disabled }) => {
+export const InputBar: React.FC<Props> = ({ onSend, onCancel, disabled, showCancel }) => {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,21 +52,37 @@ export const InputBar: React.FC<Props> = ({ onSend, disabled }) => {
           fontSize: '0.9rem',
         }}
       />
-      <button
-        onClick={handleSend}
-        disabled={disabled || !value.trim()}
-        style={{
-          padding: '0.5rem 1rem',
-          background: 'var(--vscode-button-background)',
-          color: 'var(--vscode-button-foreground)',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.6 : 1,
-        }}
-      >
-        Send
-      </button>
+      {showCancel ? (
+        <button
+          onClick={onCancel}
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'var(--vscode-errorForeground, #f44747)',
+            color: 'var(--vscode-button-foreground)',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Stop
+        </button>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={disabled || !value.trim()}
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'var(--vscode-button-background)',
+            color: 'var(--vscode-button-foreground)',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.6 : 1,
+          }}
+        >
+          Send
+        </button>
+      )}
     </div>
   );
 };

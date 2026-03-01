@@ -21,8 +21,22 @@ if (config.chatProvider === 'graphql') {
 const tools = new ToolRegistry(config);
 let history: ChatMessage[] = buildInitialHistory(config.gitlabUrl);
 
-// Serialize chat requests so only one runs at a time
+// Serialize chat requests so only one runs at a time.
+// Includes a timeout to prevent cascading hangs.
 let chatLock: Promise<void> = Promise.resolve();
+const LOCK_TIMEOUT_MS = 180_000; // 3 minutes
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
 
 function corsHeaders(): Record<string, string> {
   return {
@@ -39,6 +53,21 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
+}
+
+/**
+ * Safely write to an HTTP response, catching errors if the client
+ * disconnected mid-stream.
+ */
+function safeWrite(res: http.ServerResponse, data: string): boolean {
+  try {
+    if (!res.writableEnded && !res.destroyed) {
+      return res.write(data);
+    }
+  } catch (e) {
+    console.warn('[server] Write failed (client disconnected?):', (e as Error).message);
+  }
+  return false;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -87,13 +116,24 @@ const server = http.createServer(async (req, res) => {
     });
 
     if (validationError) {
-      res.write(`data: [ERROR] ${validationError}\n\n`);
-      res.write('data: [DONE]\n\n');
+      safeWrite(res, `data: [ERROR] ${validationError}\n\n`);
+      safeWrite(res, 'data: [DONE]\n\n');
       res.end();
       return;
     }
 
-    // Serialize chat requests via promise chain
+    // AbortController lets us cancel an in-flight ReactLoop when the
+    // client disconnects (e.g. webview closed mid-stream).
+    const abortController = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log('[server] Client disconnected, aborting chat request');
+        abortController.abort();
+      }
+    });
+
+    // Serialize chat requests via promise chain with a timeout so a
+    // hung request doesn't block all subsequent chats.
     const previousLock = chatLock;
     let releaseLock: () => void;
     chatLock = new Promise<void>((resolve) => {
@@ -101,14 +141,20 @@ const server = http.createServer(async (req, res) => {
     });
 
     try {
-      await previousLock;
-      const reactLoop = new ReactLoop(15);
+      await withTimeout(previousLock, LOCK_TIMEOUT_MS, 'Chat lock wait');
+
+      const reactLoop = new ReactLoop(15, config.gitlabUrl);
       const histCopy = [...history];
 
       try {
-        await reactLoop.run(message, histCopy, provider, tools, (token) => {
-          res.write(`data: ${token}\n\n`);
-        });
+        await reactLoop.run(
+          message,
+          histCopy,
+          provider,
+          tools,
+          (token) => { safeWrite(res, `data: ${token}\n\n`); },
+          abortController.signal,
+        );
 
         // Trim history to prevent unbounded growth (keep system prompt + last 50 messages)
         if (histCopy.length > 51) {
@@ -119,14 +165,28 @@ const server = http.createServer(async (req, res) => {
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[react] Error: ${msg}`);
-        res.write(`data: Error: ${msg}\n\n`);
+        if (msg !== 'Chat request aborted') {
+          console.error(`[react] Error: ${msg}`);
+          safeWrite(res, `data: Error: ${msg}\n\n`);
+        }
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[server] ${msg}`);
+      safeWrite(res, `data: Error: ${msg}\n\n`);
     } finally {
-      res.write('data: [DONE]\n\n');
-      res.end();
+      safeWrite(res, 'data: [DONE]\n\n');
+      if (!res.writableEnded) res.end();
       releaseLock!();
     }
+    return;
+  }
+
+  // POST /chat/reset — reset conversation history
+  if (req.method === 'POST' && url === '/chat/reset') {
+    history = buildInitialHistory(config.gitlabUrl);
+    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
 
