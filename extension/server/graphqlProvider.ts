@@ -65,25 +65,20 @@ export class GraphQLProvider implements LlmProvider {
     userGid: string,
     clientSubId: string,
   ): AsyncGenerator<ModelResponse> {
-    // Build the GraphQL subscription query.
-    // All three filter arguments (userId, resourceId, clientSubscriptionId)
-    // must be present so the subscription topic matches what the server
-    // publishes when the aiAction mutation completes.  For Duo Chat the
-    // resourceId is the user's own GID.
+    // Build the GraphQL subscription query matching the official gitlab-lsp.
+    // The aiAction filter is critical – without it the server won't route
+    // chat completion events to this subscription.
     const subQuery =
-      'subscription OpenDuoCompletion($userId: UserID!, $resourceId: AiModelID!, $clientSubscriptionId: String!) { ' +
-      'aiCompletionResponse(userId: $userId, resourceId: $resourceId, clientSubscriptionId: $clientSubscriptionId) { ' +
-      'content requestId errors } }';
+      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!, $aiAction: AiAction) { ' +
+      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId, aiAction: $aiAction) { ' +
+      'content requestId errors role type chunkId } }';
 
-    // GitLab's GraphqlChannel#subscribed reads query, variables, and
-    // operationName from the channel params (the identifier).  It does NOT
-    // have an `execute` action – the query must be part of the subscribe.
     const channelId = randomUUID();
     const identifier = JSON.stringify({
       channel: 'GraphqlChannel',
       channelId,
       query: subQuery,
-      variables: { userId: userGid, resourceId: userGid, clientSubscriptionId: clientSubId },
+      variables: { userId: userGid, clientSubscriptionId: clientSubId, aiAction: 'CHAT' },
       operationName: 'OpenDuoCompletion',
     });
 
@@ -109,7 +104,7 @@ export class GraphQLProvider implements LlmProvider {
 
     // Step 4: fire the aiAction mutation via HTTP
     log('firing aiAction mutation...');
-    await this.fireAiAction(content, clientSubId, userGid);
+    await this.fireAiAction(content, clientSubId);
     log('aiAction mutation complete');
 
     // Step 5: read events from the subscription
@@ -117,15 +112,16 @@ export class GraphQLProvider implements LlmProvider {
     yield* readSubscriptionEvents(ws, clientSubId);
   }
 
-  private async fireAiAction(content: string, clientSubId: string, userGid: string): Promise<void> {
+  private async fireAiAction(content: string, clientSubId: string): Promise<void> {
     const mutation =
       'mutation OpenDuoAiAction($input: AiActionInput!) { ' +
       'aiAction(input: $input) { requestId errors } }';
 
     const variables = {
       input: {
-        chat: { content, resourceId: userGid },
+        chat: { content, resourceId: null },
         clientSubscriptionId: clientSubId,
+        platformOrigin: 'vs_code_extension',
       },
     };
 
