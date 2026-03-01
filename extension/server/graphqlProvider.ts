@@ -354,11 +354,15 @@ async function* readSubscriptionEvents(
  * If no message (including ActionCable pings) arrives within `stallMs`,
  * the iterator signals "done" and the WebSocket is terminated.  This
  * prevents the chat from hanging forever when the server goes silent.
+ *
+ * WebSocket errors are stored and re-thrown from the iterator so that
+ * callers can distinguish a mid-stream network failure from a clean end.
  */
 function wsToAsyncIterable(ws: WebSocket, stallMs = 60_000): AsyncIterable<WebSocket.Data> {
   const queue: WebSocket.Data[] = [];
   let resolve: (() => void) | null = null;
   let done = false;
+  let wsError: Error | null = null;
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
 
   function resetStallTimer(): void {
@@ -399,6 +403,9 @@ function wsToAsyncIterable(ws: WebSocket, stallMs = 60_000): AsyncIterable<WebSo
   ws.on('error', (err) => {
     log('WS error:', err.message);
     if (stallTimer) clearTimeout(stallTimer);
+    // Store the error so the async iterator can propagate it to callers
+    // rather than silently treating it as a clean stream end.
+    wsError = err;
     done = true;
     if (resolve) {
       resolve();
@@ -423,6 +430,9 @@ function wsToAsyncIterable(ws: WebSocket, stallMs = 60_000): AsyncIterable<WebSo
             return { value: queue.shift()!, done: false };
           }
           if (stallTimer) clearTimeout(stallTimer);
+          // Propagate any WebSocket error so the caller sees a real failure
+          // instead of a silent stream end when a network error occurred.
+          if (wsError) throw wsError;
           return { value: undefined as unknown as WebSocket.Data, done: true };
         },
       };
