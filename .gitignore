@@ -1,10 +1,6 @@
 # Worktrees
 .worktrees/
 
-# Rust
-target/
-target2/
-
 # Node
 extension/node_modules/
 extension/dist/

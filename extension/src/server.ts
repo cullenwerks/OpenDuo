@@ -9,7 +9,7 @@ export class ServerManager {
   private outputChannel: vscode.OutputChannel | null = null;
 
   constructor(
-    private readonly binaryPath: string,
+    private readonly scriptPath: string,
     private readonly env: Record<string, string>,
     port: number = DEFAULT_PORT
   ) {
@@ -28,12 +28,11 @@ export class ServerManager {
     if (this.isRunning()) return;
     this.outputChannel = outputChannel;
 
-    this.process = cp.spawn(this.binaryPath, [], {
+    this.process = cp.spawn(process.execPath, [this.scriptPath], {
       env: {
         ...process.env,
         ...this.env,
         OPENDUO_PORT: String(this.port),
-        RUST_LOG: 'info',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
