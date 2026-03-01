@@ -37,6 +37,16 @@
           "type": "string",
           "default": "",
           "description": "GitLab instance URL (e.g. https://gitlab.example.com)"
+        },
+        "openduo.chatProvider": {
+          "type": "string",
+          "enum": ["rest", "graphql"],
+          "enumDescriptions": [
+            "REST endpoint (/api/v4/chat/completions) — for self-managed GitLab EE instances",
+            "GraphQL + ActionCable WebSocket — for GitLab.com"
+          ],
+          "default": "rest",
+          "description": "Which GitLab Duo Chat API to use. Use 'rest' for self-managed EE, 'graphql' for GitLab.com."
         }
       }
     }

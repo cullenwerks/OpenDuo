@@ -37,16 +37,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
-      // Read setting at command time so changes are picked up without restart
-      const gitlabUrl = vscode.workspace.getConfiguration('openduo').get<string>('gitlabUrl', '');
+      // Read settings at command time so changes are picked up without restart
+      const cfg = vscode.workspace.getConfiguration('openduo');
+      const gitlabUrl = cfg.get<string>('gitlabUrl', '');
       if (!gitlabUrl) {
         vscode.window.showErrorMessage('OpenDuo: Set openduo.gitlabUrl in settings.');
         return;
       }
+      const chatProvider = cfg.get<string>('chatProvider', 'rest');
       if (!serverManager || !serverManager.isRunning()) {
         serverManager = new ServerManager(binaryPath, {
           GITLAB_URL: gitlabUrl,
           GITLAB_PAT: pat,
+          OPENDUO_CHAT_PROVIDER: chatProvider,
         });
         await serverManager.start(getOutputChannel());
       }
