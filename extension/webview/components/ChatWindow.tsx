@@ -2,14 +2,28 @@ import React, { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from '../hooks/useChat';
 
-interface Props { messages: ChatMessage[]; }
+const EXAMPLE_PROMPTS = [
+  'List my open merge requests',
+  'Show the last 5 failed pipelines',
+  'Search for issues labeled "bug" in my project',
+  'What CI/CD variables are set?',
+];
 
-export const ChatWindow: React.FC<Props> = ({ messages }) => {
+interface Props {
+  messages: ChatMessage[];
+  isLoading?: boolean;
+  onExampleClick?: (text: string) => void;
+}
+
+export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClick }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const lastMessage = messages[messages.length - 1];
+  const showThinking = isLoading && lastMessage?.role === 'assistant' && lastMessage.content === '';
 
   return (
     <div style={{
@@ -20,12 +34,80 @@ export const ChatWindow: React.FC<Props> = ({ messages }) => {
       flexDirection: 'column',
     }}>
       {messages.length === 0 && (
-        <div style={{ textAlign: 'center', opacity: 0.5, padding: '2rem' }}>
-          Ask me anything about your GitLab projects.
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: 1,
+          padding: '2rem',
+          gap: '1.5rem',
+        }}>
+          <div style={{ fontSize: '1.1rem', opacity: 0.6 }}>
+            Ask me anything about your GitLab projects
+          </div>
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            justifyContent: 'center',
+            maxWidth: '500px',
+          }}>
+            {EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => onExampleClick?.(prompt)}
+                style={{
+                  background: 'var(--vscode-editorWidget-background)',
+                  color: 'var(--vscode-editor-foreground)',
+                  border: '1px solid var(--vscode-panel-border)',
+                  borderRadius: '6px',
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {messages.map(msg => <MessageBubble key={msg.id} message={msg} />)}
+      {showThinking && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-start',
+          padding: '0 1rem',
+          marginBottom: '0.75rem',
+        }}>
+          <div style={{
+            padding: '0.6rem 0.9rem',
+            borderRadius: '8px',
+            background: 'var(--vscode-editorWidget-background)',
+            color: 'var(--vscode-editor-foreground)',
+            fontSize: '0.85rem',
+            opacity: 0.7,
+          }}>
+            <ThinkingDots />
+          </div>
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   );
+};
+
+const ThinkingDots: React.FC = () => {
+  const [dots, setDots] = React.useState('');
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots(prev => prev.length >= 3 ? '' : prev + '.');
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
+  return <span>Thinking{dots}</span>;
 };
