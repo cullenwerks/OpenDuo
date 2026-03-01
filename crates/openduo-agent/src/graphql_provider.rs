@@ -1,4 +1,6 @@
-use crate::provider::{ChatMessage, ChatRole, LlmProvider, ModelResponse, TokenStream, ToolDefinition};
+use crate::provider::{
+    ChatMessage, ChatRole, LlmProvider, ModelResponse, TokenStream, ToolDefinition,
+};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
@@ -9,9 +11,8 @@ use tokio::sync::OnceCell;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, instrument};
 
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 enum CableEvent {
     Token(String),
@@ -99,7 +100,15 @@ impl LlmProvider for GraphQLProvider {
         let graphql_url = format!("{}/api/graphql", self.base_url);
         let pat = self.pat.clone();
 
-        let stream = graphql_stream(ws, content, user_gid, client_sub_id, http_client, graphql_url, pat);
+        let stream = graphql_stream(
+            ws,
+            content,
+            user_gid,
+            client_sub_id,
+            http_client,
+            graphql_url,
+            pat,
+        );
         Ok(Box::pin(stream))
     }
 }
@@ -133,11 +142,7 @@ async fn connect_ws(ws_url: &str, pat: &str) -> Result<WsStream> {
         .replacen("wss://", "https://", 1)
         .replacen("ws://", "http://", 1);
     // Strip the path for the origin header
-    let origin_base = origin
-        .split("/-/")
-        .next()
-        .unwrap_or(&origin)
-        .to_string();
+    let origin_base = origin.split("/-/").next().unwrap_or(&origin).to_string();
     headers.insert(
         "Origin",
         HeaderValue::from_str(&origin_base)
@@ -185,6 +190,7 @@ fn graphql_stream(
     tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive_ws(
     ws: WsStream,
     content: &str,
@@ -208,7 +214,8 @@ async fn drive_ws(
         "identifier": identifier,
     })
     .to_string();
-    sink.send(Message::Text(subscribe_msg)).await
+    sink.send(Message::Text(subscribe_msg))
+        .await
         .map_err(|e| anyhow!("Failed to send subscribe command: {}", e))?;
 
     // Step 3: wait for confirm_subscription
@@ -216,15 +223,15 @@ async fn drive_ws(
     debug!("ActionCable: subscription confirmed");
 
     // Step 4: send the aiCompletionResponse subscription query via ActionCable
-    let sub_query = format!(
-        "subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) {{ \
-            aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) {{ \
+    let sub_query =
+        "subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { \
+            aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { \
                 content \
                 requestId \
                 errors \
-            }} \
-        }}"
-    );
+            } \
+        }"
+        .to_string();
     let sub_variables = serde_json::json!({
         "userId": user_gid,
         "clientSubscriptionId": client_sub_id,
@@ -241,9 +248,13 @@ async fn drive_ws(
         "data": sub_data,
     })
     .to_string();
-    sink.send(Message::Text(sub_msg)).await
+    sink.send(Message::Text(sub_msg))
+        .await
         .map_err(|e| anyhow!("Failed to send subscription query: {}", e))?;
-    debug!("ActionCable: subscription query sent, clientSubscriptionId={}", client_sub_id);
+    debug!(
+        "ActionCable: subscription query sent, clientSubscriptionId={}",
+        client_sub_id
+    );
 
     // Step 5: fire the aiAction mutation via HTTP (after subscription is registered)
     fire_ai_action(http_client, graphql_url, pat, content, client_sub_id).await?;
@@ -361,9 +372,13 @@ async fn fire_ai_action(
     Ok(())
 }
 
-fn parse_cable_data(text: &str, _client_sub_id: &str, seen_tokens: bool) -> Result<Option<CableEvent>> {
-    let val: Value = serde_json::from_str(text)
-        .map_err(|e| anyhow!("Invalid JSON from WebSocket: {}", e))?;
+fn parse_cable_data(
+    text: &str,
+    _client_sub_id: &str,
+    seen_tokens: bool,
+) -> Result<Option<CableEvent>> {
+    let val: Value =
+        serde_json::from_str(text).map_err(|e| anyhow!("Invalid JSON from WebSocket: {}", e))?;
 
     // ActionCable control frames have a "type" field — skip them
     if val["type"].is_string() {

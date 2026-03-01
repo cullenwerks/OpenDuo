@@ -18,8 +18,8 @@ impl Config {
             .unwrap_or_else(|_| "8745".to_string())
             .parse::<u16>()
             .map_err(|_| anyhow!("OPENDUO_PORT must be a valid port number"))?;
-        let chat_provider = std::env::var("OPENDUO_CHAT_PROVIDER")
-            .unwrap_or_else(|_| "rest".to_string());
+        let chat_provider =
+            std::env::var("OPENDUO_CHAT_PROVIDER").unwrap_or_else(|_| "rest".to_string());
         if chat_provider != "rest" && chat_provider != "graphql" {
             return Err(anyhow!(
                 "OPENDUO_CHAT_PROVIDER must be 'rest' or 'graphql', got '{}'",
