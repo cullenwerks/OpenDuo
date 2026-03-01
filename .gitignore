@@ -1,6 +1,9 @@
 # Worktrees
 .worktrees/
 
+# Build artifacts
+target/
+
 # Node
 extension/node_modules/
 extension/dist/
