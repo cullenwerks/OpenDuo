@@ -1,14 +1,23 @@
 import * as http from 'http';
 import { configFromEnv } from './config';
 import { GitLabAiProvider } from './gitlabProvider';
+import { GraphQLProvider } from './graphqlProvider';
 import { buildInitialHistory } from './prompt';
 import { ReactLoop } from './reactLoop';
 import { ToolRegistry } from './tools/registry';
 import { validateChatRequest } from './validation';
+import type { LlmProvider } from './provider';
 import type { ChatMessage } from './types';
 
 const config = configFromEnv();
-const provider = new GitLabAiProvider(config);
+let provider: LlmProvider;
+if (config.chatProvider === 'graphql') {
+  console.log('Using GraphQL+ActionCable provider (gitlab.com mode)');
+  provider = new GraphQLProvider(config);
+} else {
+  console.log('Using REST provider (self-managed EE mode)');
+  provider = new GitLabAiProvider(config);
+}
 const tools = new ToolRegistry(config);
 let history: ChatMessage[] = buildInitialHistory(config.gitlabUrl);
 
