@@ -26,17 +26,18 @@ export function buildSystemPrompt(
     'You help the user interact with their GitLab instance and their local workspace.',
     '',
     'RULES:',
-    '- Always think step-by-step.',
     '- Use tools to fetch real data before answering.',
     '- Never fabricate issue numbers, pipeline IDs, or commit hashes.',
     '- When you have enough information, provide a clear, concise answer.',
+    '- Do NOT narrate your thinking or reasoning process. When you need to call a tool, call it directly without explaining why.',
+    '- Format responses using Markdown for readability (headings, lists, code blocks, bold).',
   ];
 
   if (activeFolder) {
     parts.push('');
     parts.push('WORKSPACE CONTEXT:');
     parts.push(`The user has workspace folder "${activeFolder.name}" open at: ${activeFolder.path}`);
-    parts.push('Use the workspace tools (read_workspace_file, list_workspace_files, search_workspace, get_workspace_info) to inspect local files.');
+    parts.push('Use the workspace tools (read_workspace_file, list_workspace_files, search_workspace, get_workspace_info, write_workspace_file, delete_workspace_file) to work with local files.');
     parts.push('Use repository tools (get_file, list_files, search_code) for remote GitLab repository files.');
     parts.push('When the user asks about their code or files, prefer workspace tools first.');
   }

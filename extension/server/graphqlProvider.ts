@@ -246,11 +246,14 @@ async function* readSubscriptionEvents(
   let seenTokens = false;
   let frameCount = 0;
 
-  // Track accumulated content so we can detect the final "complete" frame.
-  // GitLab sends incremental delta chunks followed by a single frame
-  // containing the full cumulative response.  Without this check the
-  // full response gets appended again, duplicating the text.
-  let accumulated = '';
+  // GitLab's ActionCable streaming sends incremental token chunks that
+  // may arrive OUT OF ORDER, followed by a single large frame containing
+  // the complete, correctly-ordered response.  To avoid displaying
+  // garbled text we buffer all incremental chunks and only yield the
+  // final complete frame.  If no complete frame arrives (timeout) we
+  // fall back to the accumulated chunks.
+  let accumulatedLen = 0;
+  let lastCompleteContent = '';
 
   // Track when we last saw actual content so we can detect when the
   // response is finished even if GitLab never sends an empty-content
@@ -288,6 +291,10 @@ async function* readSubscriptionEvents(
       // control frames, the response is complete.
       if (seenTokens && lastContentTime > 0 && Date.now() - lastContentTime > CONTENT_IDLE_MS) {
         log('  content idle timeout → done');
+        // Yield the final complete content (or accumulated fallback)
+        if (lastCompleteContent) {
+          yield { type: 'token', token: lastCompleteContent };
+        }
         yield { type: 'done' };
         return;
       }
@@ -315,6 +322,9 @@ async function* readSubscriptionEvents(
     if (!content) {
       if (seenTokens) {
         log('  empty content after tokens → done');
+        if (lastCompleteContent) {
+          yield { type: 'token', token: lastCompleteContent };
+        }
         yield { type: 'done' };
         return;
       }
@@ -322,26 +332,33 @@ async function* readSubscriptionEvents(
       continue;
     }
 
-    // Detect the final "complete" frame: GitLab sends a frame whose
-    // content equals the full accumulated response built from earlier
-    // delta chunks.  Skip it to avoid duplicating the text.
-    if (seenTokens && content.length >= accumulated.length * 0.8 &&
-        accumulated.startsWith(content.slice(0, Math.min(50, content.length)))) {
-      log(`  final complete frame (${content.length} chars) matches accumulated (${accumulated.length} chars) → done`);
-      yield { type: 'done' };
-      return;
+    // Detect the final "complete" frame: GitLab sends a large frame
+    // whose content length is close to the total accumulated length of
+    // all prior delta chunks.  This frame contains the correctly-ordered
+    // full response.  Buffer it instead of appending to garbled deltas.
+    if (seenTokens && content.length >= accumulatedLen * 0.5 && content.length > 100) {
+      log(`  final complete frame (${content.length} chars) vs accumulated (${accumulatedLen} chars) → buffering as canonical`);
+      lastCompleteContent = content;
+      lastContentTime = Date.now();
+      // Don't yield yet — wait for idle timeout or empty-content done signal
+      continue;
     }
 
-    accumulated += content;
+    // Buffer incremental tokens — don't yield them since they may be
+    // out of order.  Track length so we can detect the complete frame.
+    accumulatedLen += content.length;
     lastContentTime = Date.now();
     seenTokens = true;
-    log(`  yielding token (${content.length} chars)`);
-    yield { type: 'token', token: content };
+    lastCompleteContent = content; // Keep updating — may be a single-frame response
+    log(`  buffered token (${content.length} chars, total ${accumulatedLen})`);
   }
 
   log(`WS stream ended after ${frameCount} frames, seenTokens=${seenTokens}`);
 
   if (seenTokens) {
+    if (lastCompleteContent) {
+      yield { type: 'token', token: lastCompleteContent };
+    }
     yield { type: 'done' };
   } else {
     throw new Error('WebSocket stream ended without a response');
