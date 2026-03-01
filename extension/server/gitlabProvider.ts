@@ -60,7 +60,7 @@ export class GitLabAiProvider implements LlmProvider {
 
           if (data === '[DONE]' || data === '') {
             yield { type: 'done' };
-            continue;
+            return;
           }
 
           // Try parsing as JSON
@@ -80,6 +80,7 @@ export class GitLabAiProvider implements LlmProvider {
 
             if (val?.choices?.[0]?.finish_reason === 'stop') {
               yield { type: 'done' };
+              return;
             }
           } catch {
             // Plain text data line — treat as a token

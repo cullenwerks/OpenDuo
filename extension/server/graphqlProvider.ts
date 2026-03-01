@@ -246,6 +246,19 @@ async function* readSubscriptionEvents(
   let seenTokens = false;
   let frameCount = 0;
 
+  // Track accumulated content so we can detect the final "complete" frame.
+  // GitLab sends incremental delta chunks followed by a single frame
+  // containing the full cumulative response.  Without this check the
+  // full response gets appended again, duplicating the text.
+  let accumulated = '';
+
+  // Track when we last saw actual content so we can detect when the
+  // response is finished even if GitLab never sends an empty-content
+  // "done" frame.  ActionCable pings arrive every ~3s and keep the
+  // WebSocket alive, so the generic stall timer never fires.
+  let lastContentTime = 0;
+  const CONTENT_IDLE_MS = 10_000; // 10s of no content after tokens → done
+
   // Convert WebSocket events to an async iterable
   const messages = wsToAsyncIterable(ws);
 
@@ -271,6 +284,13 @@ async function* readSubscriptionEvents(
     // ActionCable control frames (ping, etc.)
     if (val.type) {
       log(`  (control frame type=${val.type}, skipping)`);
+      // If we've seen content and enough time has passed with only
+      // control frames, the response is complete.
+      if (seenTokens && lastContentTime > 0 && Date.now() - lastContentTime > CONTENT_IDLE_MS) {
+        log('  content idle timeout → done');
+        yield { type: 'done' };
+        return;
+      }
       continue;
     }
 
@@ -302,6 +322,18 @@ async function* readSubscriptionEvents(
       continue;
     }
 
+    // Detect the final "complete" frame: GitLab sends a frame whose
+    // content equals the full accumulated response built from earlier
+    // delta chunks.  Skip it to avoid duplicating the text.
+    if (seenTokens && content.length >= accumulated.length * 0.8 &&
+        accumulated.startsWith(content.slice(0, Math.min(50, content.length)))) {
+      log(`  final complete frame (${content.length} chars) matches accumulated (${accumulated.length} chars) → done`);
+      yield { type: 'done' };
+      return;
+    }
+
+    accumulated += content;
+    lastContentTime = Date.now();
     seenTokens = true;
     log(`  yielding token (${content.length} chars)`);
     yield { type: 'token', token: content };

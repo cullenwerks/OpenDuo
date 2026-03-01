@@ -16,6 +16,72 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* Markdown rendering styles for assistant messages */
+    .markdown-body p { margin: 0.4em 0; }
+    .markdown-body p:first-child { margin-top: 0; }
+    .markdown-body p:last-child { margin-bottom: 0; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+      margin: 0.6em 0 0.3em;
+      font-weight: 600;
+    }
+    .markdown-body h1 { font-size: 1.3em; }
+    .markdown-body h2 { font-size: 1.15em; }
+    .markdown-body h3 { font-size: 1.05em; }
+    .markdown-body ul, .markdown-body ol {
+      margin: 0.3em 0;
+      padding-left: 1.5em;
+    }
+    .markdown-body li { margin: 0.15em 0; }
+    .markdown-body code {
+      background: var(--vscode-editor-background);
+      padding: 0.1em 0.3em;
+      border-radius: 3px;
+      font-size: 0.85em;
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .markdown-body pre {
+      background: var(--vscode-editor-background);
+      padding: 0.5rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 0.4em 0;
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    .markdown-body pre code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+    }
+    .markdown-body strong { font-weight: 600; }
+    .markdown-body em { font-style: italic; }
+    .markdown-body a {
+      color: var(--vscode-textLink-foreground, #3794ff);
+      text-decoration: none;
+    }
+    .markdown-body a:hover { text-decoration: underline; }
+    .markdown-body blockquote {
+      border-left: 3px solid var(--vscode-button-background, #007acc);
+      padding-left: 0.75em;
+      margin: 0.4em 0;
+      opacity: 0.85;
+    }
+    .markdown-body hr {
+      border: none;
+      border-top: 1px solid var(--vscode-panel-border);
+      margin: 0.6em 0;
+    }
+    .markdown-body .tool-call {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      font-style: italic;
+      padding: 0.2rem 0;
+      border-left: 2px solid var(--vscode-button-background, #007acc);
+      padding-left: 0.5rem;
+      margin: 0.25rem 0;
+    }
   </style>
 </head>
 <body>
