@@ -17,7 +17,7 @@ export function appendToken(msg: ChatMessage, token: string): ChatMessage {
   return { ...msg, content: msg.content + token };
 }
 
-export function useChat(serverUrl: string) {
+export function useChat(serverUrl: string, getActiveFolder?: () => string | undefined) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -46,7 +46,7 @@ export function useChat(serverUrl: string) {
       const resp = await fetch(`${serverUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, workspaceFolder: getActiveFolder?.() }),
         signal: controller.signal,
       });
 

@@ -1,10 +1,16 @@
 export type ChatProvider = 'rest' | 'graphql';
 
+export interface WorkspaceFolder {
+  name: string;
+  path: string;
+}
+
 export interface Config {
   gitlabUrl: string;
   pat: string;
   serverPort: number;
   chatProvider: ChatProvider;
+  workspaceFolders: WorkspaceFolder[];
 }
 
 export function configFromEnv(): Config {
@@ -37,5 +43,15 @@ export function configFromEnv(): Config {
     throw new Error(`OPENDUO_CHAT_PROVIDER must be 'rest' or 'graphql', got '${chatProvider}'`);
   }
 
-  return { gitlabUrl, pat, serverPort, chatProvider };
+  let workspaceFolders: WorkspaceFolder[] = [];
+  const foldersJson = process.env.OPENDUO_WORKSPACE_FOLDERS;
+  if (foldersJson) {
+    try {
+      workspaceFolders = JSON.parse(foldersJson);
+    } catch {
+      console.warn('Invalid OPENDUO_WORKSPACE_FOLDERS JSON, ignoring');
+    }
+  }
+
+  return { gitlabUrl, pat, serverPort, chatProvider, workspaceFolders };
 }

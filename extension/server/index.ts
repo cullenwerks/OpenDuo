@@ -123,6 +123,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /workspaces — list available workspace folders and active folder
+  if (req.method === 'GET' && url === '/workspaces') {
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      folders: tools.workspaceFolders.map(f => f.name),
+      active: tools.activeFolder?.name ?? null,
+    }));
+    return;
+  }
+
   // POST /chat
   if (req.method === 'POST' && url === '/chat') {
     const body = await readBody(req);
@@ -137,6 +147,11 @@ const server = http.createServer(async (req, res) => {
 
     const validationError = validateChatRequest(parsed.message);
     const message = parsed.message as string;
+
+    // Switch active workspace folder if specified by the client
+    if (typeof parsed.workspaceFolder === 'string' && parsed.workspaceFolder) {
+      tools.setActiveFolder(parsed.workspaceFolder);
+    }
 
     res.writeHead(200, {
       ...cors,
