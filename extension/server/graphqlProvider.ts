@@ -65,53 +65,50 @@ export class GraphQLProvider implements LlmProvider {
     userGid: string,
     clientSubId: string,
   ): AsyncIterable<ModelResponse> {
-    // Include a unique channelId so GitLab routes subscription events correctly
+    // Build the GraphQL subscription query
+    const subQuery =
+      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { ' +
+      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { ' +
+      'content requestId errors } }';
+
+    // GitLab's GraphqlChannel#subscribed reads query, variables, and
+    // operationName from the channel params (the identifier).  It does NOT
+    // have an `execute` action – the query must be part of the subscribe.
     const channelId = randomUUID();
-    const identifier = JSON.stringify({ channel: 'GraphqlChannel', channelId });
+    const identifier = JSON.stringify({
+      channel: 'GraphqlChannel',
+      channelId,
+      query: subQuery,
+      variables: { userId: userGid, clientSubscriptionId: clientSubId },
+      operationName: 'OpenDuoCompletion',
+    });
 
     // Step 1: wait for ActionCable "welcome"
     log('waiting for welcome...');
     await waitForType(ws, 'welcome');
     log('got welcome');
 
-    // Step 2: subscribe to GraphqlChannel
+    // Step 2: subscribe to GraphqlChannel with the query in the identifier.
+    // The server's subscribed() callback executes the query and registers
+    // the subscription before ActionCable sends confirm_subscription.
     log('sending subscribe, channelId:', channelId);
     ws.send(JSON.stringify({ command: 'subscribe', identifier }));
 
-    // Step 3: wait for confirm_subscription
+    // Step 3: wait for confirm_subscription.
+    // The initial subscription result (more:true) from subscribed() may
+    // arrive before confirm_subscription – waitForType skips non-matching
+    // frames.  By the time confirm_subscription arrives, subscribed() has
+    // completed and the subscription is fully registered server-side.
     log('waiting for confirm_subscription...');
     await waitForType(ws, 'confirm_subscription');
     log('got confirm_subscription');
 
-    // Step 4: send subscription query via ActionCable
-    const subQuery =
-      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { ' +
-      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { ' +
-      'content requestId errors } }';
-
-    const subData = JSON.stringify({
-      query: subQuery,
-      variables: { userId: userGid, clientSubscriptionId: clientSubId },
-      operationName: 'OpenDuoCompletion',
-      action: 'execute',
-    });
-
-    log('sending subscription execute');
-    ws.send(
-      JSON.stringify({ command: 'message', identifier, data: subData }),
-    );
-
-    // Step 5: wait for subscription acknowledgment before firing the mutation
-    log('waiting for subscription ack...');
-    const ackReceived = await waitForSubscriptionAck(ws);
-    log(ackReceived ? 'got subscription ack' : 'ack timed out, proceeding anyway');
-
-    // Step 6: fire the aiAction mutation via HTTP
+    // Step 4: fire the aiAction mutation via HTTP
     log('firing aiAction mutation...');
     await this.fireAiAction(content, clientSubId);
     log('aiAction mutation complete');
 
-    // Step 7: read events from the subscription
+    // Step 5: read events from the subscription
     log('reading subscription events...');
     yield* readSubscriptionEvents(ws, clientSubId);
   }
@@ -200,45 +197,6 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
           resolve();
-        }
-      } catch {
-        // ignore non-JSON frames
-      }
-    }
-    ws.on('message', onMessage);
-  });
-}
-
-/**
- * After sending the subscription query with action:"execute", GitLab's
- * GraphqlChannel#execute may transmit {result: {data: null}, more: true}.
- * ActionCable wraps that as {identifier: "...", message: {result: ..., more: true}}.
- * We wait briefly for this ack so we know the subscription is registered before
- * firing the mutation.  However, some GitLab versions omit the result field or
- * do not send the ack at all.  In those cases we resolve after a short timeout
- * and rely on the fact that confirm_subscription already guarantees the channel
- * is active on the server before we get here.
- *
- * Returns true if the ack was received, false if the timeout elapsed.
- */
-function waitForSubscriptionAck(ws: WebSocket): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      ws.removeListener('message', onMessage);
-      resolve(false);
-    }, 3_000);
-
-    function onMessage(data: WebSocket.Data) {
-      try {
-        const val = JSON.parse(String(data));
-        log('  <- ack-wait frame:', JSON.stringify(val));
-        // Ignore ActionCable control frames (ping, etc.)
-        if (val.type) return;
-        // Accept any non-control message with more:true (result field is optional).
-        if (val.message?.more === true) {
-          clearTimeout(timeout);
-          ws.removeListener('message', onMessage);
-          resolve(true);
         }
       } catch {
         // ignore non-JSON frames
