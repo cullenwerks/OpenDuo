@@ -5,6 +5,12 @@ import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { randomUUID } from 'crypto';
 
+const TAG = '[graphql]';
+
+function log(...args: unknown[]): void {
+  console.log(TAG, ...args);
+}
+
 export class GraphQLProvider implements LlmProvider {
   private readonly baseUrl: string;
   private readonly pat: string;
@@ -17,14 +23,19 @@ export class GraphQLProvider implements LlmProvider {
 
   async *chatStream(messages: ChatMessage[]): AsyncIterable<ModelResponse> {
     const userGid = await this.resolveUserGid();
+    log('userGid resolved:', userGid);
 
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const content = lastUser?.content ?? '';
 
     const clientSubId = randomUUID();
+    log('clientSubId:', clientSubId);
+
     const wsUrl = buildWsUrl(this.baseUrl);
+    log('connecting WS:', wsUrl);
 
     const ws = await connectWs(wsUrl, this.pat, this.baseUrl);
+    log('WS connected');
 
     try {
       yield* this.driveWs(ws, content, userGid, clientSubId);
@@ -59,13 +70,18 @@ export class GraphQLProvider implements LlmProvider {
     const identifier = JSON.stringify({ channel: 'GraphqlChannel', channelId });
 
     // Step 1: wait for ActionCable "welcome"
+    log('waiting for welcome...');
     await waitForType(ws, 'welcome');
+    log('got welcome');
 
     // Step 2: subscribe to GraphqlChannel
+    log('sending subscribe, channelId:', channelId);
     ws.send(JSON.stringify({ command: 'subscribe', identifier }));
 
     // Step 3: wait for confirm_subscription
+    log('waiting for confirm_subscription...');
     await waitForType(ws, 'confirm_subscription');
+    log('got confirm_subscription');
 
     // Step 4: send subscription query via ActionCable
     const subQuery =
@@ -80,17 +96,23 @@ export class GraphQLProvider implements LlmProvider {
       action: 'execute',
     });
 
+    log('sending subscription execute');
     ws.send(
       JSON.stringify({ command: 'message', identifier, data: subData }),
     );
 
     // Step 5: wait for subscription acknowledgment before firing the mutation
-    await waitForSubscriptionAck(ws);
+    log('waiting for subscription ack...');
+    const ackReceived = await waitForSubscriptionAck(ws);
+    log(ackReceived ? 'got subscription ack' : 'ack timed out, proceeding anyway');
 
     // Step 6: fire the aiAction mutation via HTTP
+    log('firing aiAction mutation...');
     await this.fireAiAction(content, clientSubId);
+    log('aiAction mutation complete');
 
     // Step 7: read events from the subscription
+    log('reading subscription events...');
     yield* readSubscriptionEvents(ws, clientSubId);
   }
 
@@ -106,20 +128,27 @@ export class GraphQLProvider implements LlmProvider {
       },
     };
 
+    log('aiAction POST to', `${this.baseUrl}/api/graphql`);
     const resp = await fetch(`${this.baseUrl}/api/graphql`, {
       method: 'POST',
       headers: privateTokenHeaders(this.pat),
       body: JSON.stringify({ query: mutation, variables }),
     });
 
+    log('aiAction HTTP status:', resp.status);
+
     if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      log('aiAction error body:', body);
       throw new Error(`aiAction HTTP error: HTTP ${resp.status}`);
     }
 
     const data = (await resp.json()) as {
       errors?: { message: string }[];
-      data?: { aiAction?: { errors?: string[] } };
+      data?: { aiAction?: { requestId?: string; errors?: string[] } };
     };
+
+    log('aiAction response:', JSON.stringify(data));
 
     if (data.errors?.length) {
       const msg = data.errors.map((e) => e.message).join('; ');
@@ -166,6 +195,7 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
     function onMessage(data: WebSocket.Data) {
       try {
         const val = JSON.parse(String(data));
+        log(`  <- ${val.type ?? 'message'}:`, JSON.stringify(val));
         if (val.type === expectedType) {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
@@ -188,25 +218,27 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
  * do not send the ack at all.  In those cases we resolve after a short timeout
  * and rely on the fact that confirm_subscription already guarantees the channel
  * is active on the server before we get here.
+ *
+ * Returns true if the ack was received, false if the timeout elapsed.
  */
-function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
+function waitForSubscriptionAck(ws: WebSocket): Promise<boolean> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       ws.removeListener('message', onMessage);
-      // Proceed even without an explicit ack – the subscription should be active.
-      resolve();
+      resolve(false);
     }, 3_000);
 
     function onMessage(data: WebSocket.Data) {
       try {
         const val = JSON.parse(String(data));
+        log('  <- ack-wait frame:', JSON.stringify(val));
         // Ignore ActionCable control frames (ping, etc.)
         if (val.type) return;
         // Accept any non-control message with more:true (result field is optional).
         if (val.message?.more === true) {
           clearTimeout(timeout);
           ws.removeListener('message', onMessage);
-          resolve();
+          resolve(true);
         }
       } catch {
         // ignore non-JSON frames
@@ -237,29 +269,43 @@ async function* readSubscriptionEvents(
   const timeoutMs = 120_000;
   const start = Date.now();
   let seenTokens = false;
+  let frameCount = 0;
 
   // Convert WebSocket events to an async iterable
   const messages = wsToAsyncIterable(ws);
 
   for await (const raw of messages) {
-    if (Date.now() - start > timeoutMs) {
+    frameCount++;
+    const elapsed = Date.now() - start;
+
+    if (elapsed > timeoutMs) {
       throw new Error('GraphQL subscription timed out after 120s');
     }
 
+    const rawStr = String(raw);
+    log(`  <- frame #${frameCount} (+${elapsed}ms):`, rawStr.length > 500 ? rawStr.slice(0, 500) + '…' : rawStr);
+
     let val: CableResponse;
     try {
-      val = JSON.parse(String(raw));
+      val = JSON.parse(rawStr);
     } catch {
+      log('  (non-JSON frame, skipping)');
       continue;
     }
 
     // ActionCable control frames (ping, etc.)
     if (val.type) {
+      log(`  (control frame type=${val.type}, skipping)`);
       continue;
     }
 
     const response = val.message?.result?.data?.aiCompletionResponse;
-    if (!response) continue;
+    if (!response) {
+      log('  (no aiCompletionResponse in frame, skipping)');
+      continue;
+    }
+
+    log('  aiCompletionResponse:', JSON.stringify(response));
 
     // Check for errors
     if (response.errors?.length) {
@@ -273,15 +319,20 @@ async function* readSubscriptionEvents(
 
     if (!content) {
       if (seenTokens) {
+        log('  empty content after tokens → done');
         yield { type: 'done' };
         return;
       }
+      log('  empty content, no tokens yet → skipping');
       continue;
     }
 
     seenTokens = true;
+    log(`  yielding token (${content.length} chars)`);
     yield { type: 'token', token: content };
   }
+
+  log(`WS stream ended after ${frameCount} frames, seenTokens=${seenTokens}`);
 
   if (seenTokens) {
     yield { type: 'done' };
@@ -303,7 +354,8 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    log(`WS closed: code=${code} reason=${String(reason)}`);
     done = true;
     if (resolve) {
       resolve();
@@ -311,7 +363,8 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
     }
   });
 
-  ws.on('error', () => {
+  ws.on('error', (err) => {
+    log('WS error:', err.message);
     done = true;
     if (resolve) {
       resolve();
