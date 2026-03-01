@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FC6D26"/>
+      <stop offset="100%" stop-color="#E24329"/>
+    </linearGradient>
+    <linearGradient id="bubble1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0F0F0"/>
+    </linearGradient>
+    <linearGradient id="bubble2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE8D0"/>
+      <stop offset="100%" stop-color="#FACA8F"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="26" ry="26" fill="url(#bg)"/>
+
+  <!-- Shield outline (subtle, behind bubbles) -->
+  <path d="M64 18 C64 18 36 26 36 26 C36 26 34 60 34 60 C34 80 48 96 64 106 C80 96 94 80 94 60 C94 60 92 26 92 26 C92 26 64 18 64 18 Z"
+        fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+
+  <!-- Chat bubble 1 (back, slightly left) -->
+  <rect x="30" y="34" width="48" height="36" rx="8" ry="8" fill="url(#bubble1)"/>
+  <polygon points="42,70 48,70 40,80" fill="#F0F0F0"/>
+
+  <!-- Typing dots in bubble 1 -->
+  <circle cx="44" cy="50" r="3.5" fill="#E24329" opacity="0.6"/>
+  <circle cx="54" cy="50" r="3.5" fill="#E24329" opacity="0.4"/>
+  <circle cx="64" cy="50" r="3.5" fill="#E24329" opacity="0.2"/>
+
+  <!-- Chat bubble 2 (front, slightly right and lower) -->
+  <rect x="50" y="52" width="48" height="36" rx="8" ry="8" fill="url(#bubble2)"/>
+  <polygon points="86,88 80,88 88,98" fill="#FACA8F"/>
+
+  <!-- AI sparkle/lines in bubble 2 -->
+  <line x1="60" y1="64" x2="88" y2="64" stroke="#E24329" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="60" y1="71" x2="82" y2="71" stroke="#E24329" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+  <line x1="60" y1="78" x2="76" y2="78" stroke="#E24329" stroke-width="2.5" stroke-linecap="round" opacity="0.4"/>
+</svg>
