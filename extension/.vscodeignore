@@ -1,9 +1,14 @@
 node_modules/
 src/
+server/
 webview/
+__mocks__/
 *.ts
 *.tsx
 *.map
+*.test.ts
 esbuild.config.js
 tsconfig.json
 tsconfig.webview.json
+tsconfig.server.json
+vitest.config.ts

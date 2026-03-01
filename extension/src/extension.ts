@@ -6,6 +6,8 @@ import { getOutputChannel, log } from './logger';
 import { ChatPanel } from './chatPanel';
 
 let serverManager: ServerManager | null = null;
+/** Tracks the env the running server was started with so we can detect changes. */
+let activeServerEnv: Record<string, string> = {};
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   log('OpenDuo activating...');
@@ -45,12 +47,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const chatProvider = cfg.get<string>('chatProvider', 'rest');
+      const desiredEnv: Record<string, string> = {
+        GITLAB_URL: gitlabUrl,
+        GITLAB_PAT: pat,
+        OPENDUO_CHAT_PROVIDER: chatProvider,
+      };
+
+      // Restart the server if settings changed since the last launch.
+      const envChanged = Object.keys(desiredEnv).some(
+        (k) => desiredEnv[k] !== activeServerEnv[k],
+      );
+      if (envChanged && serverManager?.isRunning()) {
+        log('Settings changed — restarting server');
+        await serverManager.stop();
+        serverManager = null;
+      }
+
       if (!serverManager || !serverManager.isRunning()) {
-        serverManager = new ServerManager(serverScript, {
-          GITLAB_URL: gitlabUrl,
-          GITLAB_PAT: pat,
-          OPENDUO_CHAT_PROVIDER: chatProvider,
-        });
+        serverManager = new ServerManager(serverScript, desiredEnv);
+        activeServerEnv = desiredEnv;
         await serverManager.start(getOutputChannel());
       }
       log('Server running at ' + serverManager.serverUrl());

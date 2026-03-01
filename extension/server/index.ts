@@ -38,18 +38,38 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-function corsHeaders(): Record<string, string> {
+function corsHeaders(req?: http.IncomingMessage): Record<string, string> {
+  // Only allow requests from VS Code webview or localhost origins.
+  // A wildcard '*' would let any website running in the user's browser
+  // interact with this server and exfiltrate GitLab data via the PAT.
+  const origin = req?.headers?.origin ?? '';
+  const allowed =
+    origin.startsWith('vscode-webview://') ||
+    origin.startsWith('http://127.0.0.1') ||
+    origin.startsWith('http://localhost');
   return {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': '*',
-    'access-control-allow-headers': '*',
+    'access-control-allow-origin': allowed ? origin : '',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    vary: 'Origin',
   };
 }
+
+const MAX_BODY_BYTES = 64 * 1024; // 64 KiB — more than enough for chat messages
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
+    let totalLength = 0;
+    req.on('data', (c: Buffer) => {
+      totalLength += c.length;
+      if (totalLength > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
@@ -71,9 +91,11 @@ function safeWrite(res: http.ServerResponse, data: string): boolean {
 }
 
 const server = http.createServer(async (req, res) => {
+  const cors = corsHeaders(req);
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, cors);
     res.end();
     return;
   }
@@ -82,14 +104,14 @@ const server = http.createServer(async (req, res) => {
 
   // GET /health
   if (req.method === 'GET' && url === '/health') {
-    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/json' });
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'openduo-server' }));
     return;
   }
 
   // GET /tools
   if (req.method === 'GET' && url === '/tools') {
-    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/json' });
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ tools: tools.definitions() }));
     return;
   }
@@ -101,7 +123,7 @@ const server = http.createServer(async (req, res) => {
     try {
       message = JSON.parse(body).message;
     } catch {
-      res.writeHead(400, { ...corsHeaders(), 'content-type': 'application/json' });
+      res.writeHead(400, { ...cors, 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid JSON' }));
       return;
     }
@@ -109,7 +131,7 @@ const server = http.createServer(async (req, res) => {
     const validationError = validateChatRequest(message);
 
     res.writeHead(200, {
-      ...corsHeaders(),
+      ...cors,
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
@@ -185,13 +207,13 @@ const server = http.createServer(async (req, res) => {
   // POST /chat/reset — reset conversation history
   if (req.method === 'POST' && url === '/chat/reset') {
     history = buildInitialHistory(config.gitlabUrl);
-    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/json' });
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
 
   // 404
-  res.writeHead(404, { ...corsHeaders(), 'content-type': 'application/json' });
+  res.writeHead(404, { ...cors, 'content-type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
 });
 
