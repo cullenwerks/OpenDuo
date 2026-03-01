@@ -9,7 +9,7 @@ declare const window: Window & { __OPENDUO_SERVER_URL__?: string };
 const SERVER_URL = window.__OPENDUO_SERVER_URL__ || 'http://127.0.0.1:8745';
 
 export const ChatApp: React.FC = () => {
-  const { messages, isLoading, sendMessage } = useChat(SERVER_URL);
+  const { messages, isLoading, sendMessage, cancelRequest } = useChat(SERVER_URL);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -28,9 +28,14 @@ export const ChatApp: React.FC = () => {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <StatusBar connected={connected} model="claude-sonnet-4-5" />
+      <StatusBar connected={connected} model="GitLab Duo (Agentic)" />
       <ChatWindow messages={messages} />
-      <InputBar onSend={(text) => sendMessage(text)} disabled={isLoading} />
+      <InputBar
+        onSend={(text) => sendMessage(text)}
+        onCancel={cancelRequest}
+        disabled={isLoading}
+        showCancel={isLoading}
+      />
     </div>
   );
 };

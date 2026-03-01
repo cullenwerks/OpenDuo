@@ -3,6 +3,7 @@ import { privateTokenHeaders } from './auth';
 import type { Config } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
+import { flattenMessages } from './prompt';
 import { randomUUID } from 'crypto';
 
 const TAG = '[graphql]';
@@ -25,8 +26,9 @@ export class GraphQLProvider implements LlmProvider {
     const userGid = await this.resolveUserGid();
     log('userGid resolved:', userGid);
 
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const content = lastUser?.content ?? '';
+    // Flatten the full conversation (system prompt + history + tool results)
+    // into a single content string so the LLM sees the complete context.
+    const content = flattenMessages(messages);
 
     const clientSubId = randomUUID();
     log('clientSubId:', clientSubId);
@@ -175,14 +177,25 @@ function buildWsUrl(baseUrl: string): string {
 
 function connectWs(wsUrl: string, pat: string, baseUrl: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
+    const connectTimeout = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('WebSocket connection timed out after 15s'));
+    }, 15_000);
+
     const ws = new WebSocket(wsUrl, {
       headers: {
         'PRIVATE-TOKEN': pat,
         Origin: baseUrl,
       },
     });
-    ws.once('open', () => resolve(ws));
-    ws.once('error', (err) => reject(new Error(`WebSocket connection failed: ${err.message}`)));
+    ws.once('open', () => {
+      clearTimeout(connectTimeout);
+      resolve(ws);
+    });
+    ws.once('error', (err) => {
+      clearTimeout(connectTimeout);
+      reject(new Error(`WebSocket connection failed: ${err.message}`));
+    });
   });
 }
 
@@ -303,12 +316,37 @@ async function* readSubscriptionEvents(
   }
 }
 
-function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
+/**
+ * Converts WebSocket events to an async iterable with a stall timeout.
+ *
+ * If no message (including ActionCable pings) arrives within `stallMs`,
+ * the iterator signals "done" and the WebSocket is terminated.  This
+ * prevents the chat from hanging forever when the server goes silent.
+ */
+function wsToAsyncIterable(ws: WebSocket, stallMs = 60_000): AsyncIterable<WebSocket.Data> {
   const queue: WebSocket.Data[] = [];
   let resolve: (() => void) | null = null;
   let done = false;
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function resetStallTimer(): void {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      log('WS stall timeout — no frames received in', stallMs, 'ms, terminating');
+      done = true;
+      ws.terminate();
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    }, stallMs);
+  }
+
+  // Start the stall timer immediately
+  resetStallTimer();
 
   ws.on('message', (data) => {
+    resetStallTimer();
     queue.push(data);
     if (resolve) {
       resolve();
@@ -318,6 +356,7 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
 
   ws.on('close', (code, reason) => {
     log(`WS closed: code=${code} reason=${String(reason)}`);
+    if (stallTimer) clearTimeout(stallTimer);
     done = true;
     if (resolve) {
       resolve();
@@ -327,6 +366,7 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
 
   ws.on('error', (err) => {
     log('WS error:', err.message);
+    if (stallTimer) clearTimeout(stallTimer);
     done = true;
     if (resolve) {
       resolve();
@@ -334,8 +374,9 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
     }
   });
 
-  // Respond to pings
+  // Respond to pings (keeps the stall timer alive)
   ws.on('ping', (data) => {
+    resetStallTimer();
     ws.pong(data);
   });
 
@@ -349,6 +390,7 @@ function wsToAsyncIterable(ws: WebSocket): AsyncIterable<WebSocket.Data> {
           if (queue.length > 0) {
             return { value: queue.shift()!, done: false };
           }
+          if (stallTimer) clearTimeout(stallTimer);
           return { value: undefined as unknown as WebSocket.Data, done: true };
         },
       };
