@@ -263,11 +263,11 @@ export function graphqlQueryTools(client: GitLabClient): Tool[] {
         required: ['project_path'],
       }),
       async execute(args) {
-        const severity = args.severity ? `, severity: [${args.severity}]` : '';
-        const first = (args.first as number) ?? 20;
-        const query = `query($path: ID!) {
+        const first = Math.min(Math.max(1, Math.trunc(Number(args.first) || 20)), 100);
+        const severityFilter = args.severity ? ', severity: [$severity]' : '';
+        const query = `query($path: ID!, $first: Int!${args.severity ? ', $severity: VulnerabilitySeverity!' : ''}) {
           project(fullPath: $path) {
-            vulnerabilities(first: ${first}${severity}) {
+            vulnerabilities(first: $first${severityFilter}) {
               nodes {
                 title
                 severity
@@ -280,7 +280,16 @@ export function graphqlQueryTools(client: GitLabClient): Tool[] {
             }
           }
         }`;
-        const data = await client.graphql(query, { path: args.project_path as string });
+        const variables: Record<string, unknown> = { path: args.project_path as string, first };
+        if (args.severity) {
+          const allowed = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'];
+          const sev = String(args.severity).toUpperCase();
+          if (!allowed.includes(sev)) {
+            return JSON.stringify({ error: `Invalid severity: ${sev}. Must be one of: ${allowed.join(', ')}` });
+          }
+          variables.severity = sev;
+        }
+        const data = await client.graphql(query, variables);
         return JSON.stringify(data, null, 2);
       },
     },

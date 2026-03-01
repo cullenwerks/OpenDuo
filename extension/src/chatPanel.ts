@@ -47,7 +47,14 @@ export class ChatPanel {
     let html = fs.readFileSync(htmlPath, 'utf8');
     html = html.replace(/\$\{cspNonce\}/g, nonce);
     html = html.replace('${webviewUri}', webviewUri.toString());
-    html = html.replace('${serverUrl}', serverUrl);
+    // Escape serverUrl for safe embedding inside a JS string literal.
+    // Prevents breakout if the value ever contains quotes or angle brackets.
+    const safeServerUrl = serverUrl
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/</g, '\\x3c')
+      .replace(/>/g, '\\x3e');
+    html = html.replace('${serverUrl}', safeServerUrl);
     return html;
   }
 
