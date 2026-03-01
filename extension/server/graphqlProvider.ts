@@ -64,7 +64,7 @@ export class GraphQLProvider implements LlmProvider {
     content: string,
     userGid: string,
     clientSubId: string,
-  ): AsyncIterable<ModelResponse> {
+  ): AsyncGenerator<ModelResponse> {
     // Build the GraphQL subscription query
     const subQuery =
       'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { ' +
@@ -105,7 +105,7 @@ export class GraphQLProvider implements LlmProvider {
 
     // Step 4: fire the aiAction mutation via HTTP
     log('firing aiAction mutation...');
-    await this.fireAiAction(content, clientSubId);
+    await this.fireAiAction(content, clientSubId, userGid);
     log('aiAction mutation complete');
 
     // Step 5: read events from the subscription
@@ -113,14 +113,14 @@ export class GraphQLProvider implements LlmProvider {
     yield* readSubscriptionEvents(ws, clientSubId);
   }
 
-  private async fireAiAction(content: string, clientSubId: string): Promise<void> {
+  private async fireAiAction(content: string, clientSubId: string, userGid: string): Promise<void> {
     const mutation =
       'mutation OpenDuoAiAction($input: AiActionInput!) { ' +
       'aiAction(input: $input) { requestId errors } }';
 
     const variables = {
       input: {
-        chat: { content, resourceId: null },
+        chat: { content, resourceId: userGid },
         clientSubscriptionId: clientSubId,
       },
     };
