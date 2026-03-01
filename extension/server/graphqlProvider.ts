@@ -65,53 +65,52 @@ export class GraphQLProvider implements LlmProvider {
     userGid: string,
     clientSubId: string,
   ): AsyncIterable<ModelResponse> {
-    // Include a unique channelId so GitLab routes subscription events correctly
     const channelId = randomUUID();
-    const identifier = JSON.stringify({ channel: 'GraphqlChannel', channelId });
+
+    // graphql-ruby's ActionCable GraphqlChannel registers the GraphQL subscription
+    // during its subscribed() callback by executing the query from the channel
+    // identifier params.  Include the query + variables here so the subscription
+    // is live on the server before confirm_subscription arrives.
+    // A separate "execute" message is NOT needed — and when the identifier has no
+    // query, the server responds with "No query string was present" and never
+    // registers the subscription, causing the 120 s timeout we observed.
+    const subQuery =
+      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String) { ' +
+      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { ' +
+      'content requestId errors } }';
+
+    const identifier = JSON.stringify({
+      channel: 'GraphqlChannel',
+      channelId,
+      query: subQuery,
+      variables: { userId: userGid, clientSubscriptionId: clientSubId },
+      operationName: 'OpenDuoCompletion',
+    });
 
     // Step 1: wait for ActionCable "welcome"
     log('waiting for welcome...');
     await waitForType(ws, 'welcome');
     log('got welcome');
 
-    // Step 2: subscribe to GraphqlChannel
-    log('sending subscribe, channelId:', channelId);
+    // Step 2: subscribe (with query embedded — triggers server-side registration)
+    log('sending subscribe with query, channelId:', channelId);
     ws.send(JSON.stringify({ command: 'subscribe', identifier }));
 
-    // Step 3: wait for confirm_subscription
+    // Step 3: subscription result arrives BEFORE confirm_subscription — capture it
+    log('waiting for subscription ack...');
+    await waitForSubscriptionAck(ws);
+
+    // Step 4: now wait for confirm_subscription
     log('waiting for confirm_subscription...');
     await waitForType(ws, 'confirm_subscription');
-    log('got confirm_subscription');
+    log('got confirm_subscription — subscription registered');
 
-    // Step 4: send subscription query via ActionCable
-    const subQuery =
-      'subscription OpenDuoCompletion($userId: UserID!, $clientSubscriptionId: String!) { ' +
-      'aiCompletionResponse(userId: $userId, clientSubscriptionId: $clientSubscriptionId) { ' +
-      'content requestId errors } }';
-
-    const subData = JSON.stringify({
-      query: subQuery,
-      variables: { userId: userGid, clientSubscriptionId: clientSubId },
-      operationName: 'OpenDuoCompletion',
-      action: 'execute',
-    });
-
-    log('sending subscription execute');
-    ws.send(
-      JSON.stringify({ command: 'message', identifier, data: subData }),
-    );
-
-    // Step 5: wait for subscription acknowledgment before firing the mutation
-    log('waiting for subscription ack...');
-    const ackReceived = await waitForSubscriptionAck(ws);
-    log(ackReceived ? 'got subscription ack' : 'ack timed out, proceeding anyway');
-
-    // Step 6: fire the aiAction mutation via HTTP
+    // Step 5: fire the aiAction mutation via HTTP
     log('firing aiAction mutation...');
     await this.fireAiAction(content, clientSubId);
     log('aiAction mutation complete');
 
-    // Step 7: read events from the subscription
+    // Step 6: read events from the subscription
     log('reading subscription events...');
     yield* readSubscriptionEvents(ws, clientSubId);
   }
@@ -210,35 +209,51 @@ function waitForType(ws: WebSocket, expectedType: string): Promise<void> {
 }
 
 /**
- * After sending the subscription query with action:"execute", GitLab's
- * GraphqlChannel#execute may transmit {result: {data: null}, more: true}.
- * ActionCable wraps that as {identifier: "...", message: {result: ..., more: true}}.
- * We wait briefly for this ack so we know the subscription is registered before
- * firing the mutation.  However, some GitLab versions omit the result field or
- * do not send the ack at all.  In those cases we resolve after a short timeout
- * and rely on the fact that confirm_subscription already guarantees the channel
- * is active on the server before we get here.
+ * When the subscribe identifier contains the GraphQL subscription query,
+ * graphql-ruby executes it in subscribed() and transmits the result back
+ * before sending confirm_subscription.
  *
- * Returns true if the ack was received, false if the timeout elapsed.
+ *   success: { identifier: "...", message: { result: { data: null }, more: true } }
+ *   failure: { identifier: "...", message: { result: { errors: [...] }, more: false } }
+ *
+ * We capture that frame and throw immediately on failure so we get a useful
+ * error instead of a 120 s timeout.  If no frame arrives within 5 s (some
+ * GitLab builds omit the ack) we proceed and rely on confirm_subscription.
  */
-function waitForSubscriptionAck(ws: WebSocket): Promise<boolean> {
-  return new Promise((resolve) => {
+function waitForSubscriptionAck(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.removeListener('message', onMessage);
-      resolve(false);
-    }, 3_000);
+      log('  subscription ack timed out, proceeding anyway');
+      resolve();
+    }, 5_000);
 
     function onMessage(data: WebSocket.Data) {
       try {
         const val = JSON.parse(String(data));
         log('  <- ack-wait frame:', JSON.stringify(val));
-        // Ignore ActionCable control frames (ping, etc.)
-        if (val.type) return;
-        // Accept any non-control message with more:true (result field is optional).
-        if (val.message?.more === true) {
-          clearTimeout(timeout);
-          ws.removeListener('message', onMessage);
-          resolve(true);
+        if (val.type) return; // skip control frames (ping, etc.)
+
+        // Any non-control frame is the subscription result from subscribed()
+        clearTimeout(timeout);
+        ws.removeListener('message', onMessage);
+
+        const msg = val.message;
+        if (!msg) { resolve(); return; }
+
+        if (msg.more === true) {
+          log('  subscription registered (more: true)');
+          resolve();
+        } else {
+          // more: false — subscription failed
+          const errors: { message?: string }[] | undefined = msg.result?.errors;
+          if (errors?.length) {
+            const text = errors.map((e) => e.message ?? JSON.stringify(e)).join('; ');
+            reject(new Error(`Subscription registration failed: ${text}`));
+          } else {
+            log('  subscription ack more: false but no errors, proceeding');
+            resolve();
+          }
         }
       } catch {
         // ignore non-JSON frames
