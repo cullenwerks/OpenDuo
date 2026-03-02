@@ -18,6 +18,7 @@ import { groupTools } from './groups';
 import { environmentTools } from './environments';
 import { wikiTools } from './wiki';
 import { workspaceTools } from './workspace';
+import { editorContextTools } from './editorContext';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -54,6 +55,8 @@ export class ToolRegistry {
         config.workspaceFolders,
         () => this._activeFolder,
       ),
+      // Editor context tools (IPC to extension host)
+      ...editorContextTools(),
     ];
 
     for (const tool of allTools) {

@@ -105,8 +105,35 @@ function handleGetDiagnostics(_params: Record<string, unknown>): Array<Record<st
 }
 
 function handleGetEditorContext(): Record<string, unknown> | null {
-  // Will be implemented in Task 4
-  return null;
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return null;
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const absPath = editor.document.uri.fsPath;
+  const filePath = workspaceRoot
+    ? path.relative(workspaceRoot, absPath).replace(/\\/g, '/')
+    : absPath;
+
+  const sel = editor.selection;
+  const selectedText = editor.document.getText(sel);
+
+  return {
+    filePath,
+    languageId: editor.document.languageId,
+    selection: selectedText.slice(0, 10240), // 10 KB max
+    selectionRange: {
+      startLine: sel.start.line + 1,
+      startCol: sel.start.character,
+      endLine: sel.end.line + 1,
+      endCol: sel.end.character,
+    },
+    visibleRange: {
+      startLine: (editor.visibleRanges[0]?.start.line ?? 0) + 1,
+      endLine: (editor.visibleRanges[0]?.end.line ?? 0) + 1,
+    },
+    isDirty: editor.document.isDirty,
+    lineCount: editor.document.lineCount,
+  };
 }
 
 export function deactivate(): void {
