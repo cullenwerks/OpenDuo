@@ -76,6 +76,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         serverManager = new ServerManager(serverScript, desiredEnv);
         activeServerEnv = desiredEnv;
         await serverManager.start(getOutputChannel());
+        serverManager.setIpcHandler(async (method: string, params: Record<string, unknown>) => {
+          switch (method) {
+            case 'getDiagnostics':
+              return handleGetDiagnostics(params);
+            case 'getEditorContext':
+              return handleGetEditorContext();
+            default:
+              throw new Error(`Unknown IPC method: ${method}`);
+          }
+        });
       }
       log('Server running at ' + serverManager.serverUrl());
       ChatPanel.createOrShow(context.extensionUri, serverManager.serverUrl());
@@ -87,6 +97,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   log('OpenDuo activated.');
+}
+
+function handleGetDiagnostics(_params: Record<string, unknown>): Array<Record<string, unknown>> {
+  // Will be implemented in Task 5
+  return [];
+}
+
+function handleGetEditorContext(): Record<string, unknown> | null {
+  // Will be implemented in Task 4
+  return null;
 }
 
 export function deactivate(): void {
