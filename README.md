@@ -5,8 +5,8 @@
 <h1 align="center">OpenDuo</h1>
 
 <p align="center">
-  <strong>Open-source GitLab Duo Agentic Chat for Federal Enterprise</strong><br/>
-  PAT-authenticated &middot; No OAuth required &middot; Windows x64
+  <strong>Open-source GitLab Duo Agentic Chat Alternative for Enterprise</strong><br/>
+  PAT-authenticated &middot; No OAuth required &middot; Windows x64/ARM
 </p>
 
 <p align="center">
@@ -20,7 +20,9 @@
 
 ## Why OpenDuo?
 
-The official GitLab Duo VS Code extension requires OAuth for its chat features, which is **blocked in many Federal, DoD, and GovCloud environments**. OpenDuo provides the same agentic GitLab chat experience using only a Personal Access Token (PAT) — no OAuth handshake, no browser redirects, no external auth servers.
+The Offical GitLab plugin is annoying/buggy to use for me. Always breaks at least in my own enterprise environment. So I decided to make one myself. 
+It uses GraphQL but also has an option to use REST API exclusive to Enterprise Edition GitLab installations (commerical doesn't use this, only GraphQL). Having 
+the option to not use GraphQL in and of itself is a selling point, being how annoyingly unreliable it is. 
 
 ## Features
 
