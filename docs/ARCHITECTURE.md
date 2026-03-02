@@ -44,44 +44,44 @@ User ↔ React Webview ↔ Node.js Server ↔ GitLab APIs
 │  │              Extension Host                     │     │
 │  │                                                 │     │
 │  │  extension.ts    Main entry point. Registers    │     │
-│  │                  commands, starts server,        │     │
-│  │                  handles IPC requests.           │     │
+│  │                  commands, starts server,       │     │
+│  │                  handles IPC requests.          │     │
 │  │                                                 │     │
 │  │  patManager.ts   PAT CRUD via SecretStorage     │     │
-│  │                  (Windows DPAPI).                │     │
+│  │                  (Windows DPAPI).               │     │
 │  │                                                 │     │
 │  │  server.ts       ServerManager — spawns         │     │
-│  │                  server.js as child_process,     │     │
-│  │                  manages lifecycle + IPC.        │     │
+│  │                  server.js as child_process,    │     │
+│  │                  manages lifecycle + IPC.       │     │
 │  │                                                 │     │
-│  │  chatPanel.ts    Creates WebviewPanel,           │     │
-│  │                  injects server URL + CSP.       │     │
+│  │  chatPanel.ts    Creates WebviewPanel,          │     │
+│  │                  injects server URL + CSP.      │     │
 │  │                                                 │     │
-│  │  logger.ts       Output channel logging.         │     │
+│  │  logger.ts       Output channel logging.        │     │
 │  └──────────┬──────────────────────────────────────┘     │
-│             │ child_process (stdio + IPC)                 │
+│             │ child_process (stdio + IPC)                │
 │             ▼                                            │
 │  ┌─────────────────────────────────────────────────┐     │
 │  │              Node.js Server                     │     │
 │  │                                                 │     │
 │  │  index.ts        HTTP server (http.createServer)│     │
 │  │                  Routes: /health, /chat, /tools,│     │
-│  │                  /chat/reset, /command/confirm,  │     │
-│  │                  /workspaces                     │     │
+│  │                  /chat/reset, /command/confirm, │     │
+│  │                  /workspaces                    │     │
 │  │                                                 │     │
 │  │  reactLoop.ts    ReAct agent loop. Iterates     │     │
 │  │                  LLM → tool calls → observations│     │
-│  │                  up to 15 times.                 │     │
+│  │                  up to 15 times.                │     │
 │  │                                                 │     │
 │  │  providers/      LLM provider abstraction:      │     │
 │  │    gitlabProvider.ts   REST /chat/completions   │     │
-│  │    graphqlProvider.ts  GraphQL + ActionCable     │     │
+│  │    graphqlProvider.ts  GraphQL + ActionCable    │     │
 │  │                                                 │     │
 │  │  tools/          30+ tool implementations       │     │
 │  │    registry.ts   Central dispatch + definitions │     │
 │  │    issues.ts, mergeRequests.ts, ...             │     │
 │  │    workspace.ts  Local file operations          │     │
-│  │    terminal.ts   Shell command execution         │     │
+│  │    terminal.ts   Shell command execution        │     │
 │  │                                                 │     │
 │  │  toolCallParser.ts  Extracts <tool_call> blocks │     │
 │  │  prompt.ts          System prompt builder       │     │
@@ -98,18 +98,18 @@ User ↔ React Webview ↔ Node.js Server ↔ GitLab APIs
 │  │                  health polling, workspace mgmt │     │
 │  │                                                 │     │
 │  │  ChatWindow.tsx  Message list, auto-scroll,     │     │
-│  │                  example prompts                 │     │
+│  │                  example prompts                │     │
 │  │                                                 │     │
 │  │  MessageBubble   Markdown rendering (marked.js),│     │
 │  │  .tsx            streaming cursor, XSS-safe     │     │
 │  │                                                 │     │
 │  │  InputBar.tsx    Auto-resize textarea, send/stop│     │
 │  │                                                 │     │
-│  │  StatusBar.tsx   Connection indicator, model     │     │
-│  │                  label, workspace folder picker  │     │
+│  │  StatusBar.tsx   Connection indicator, model    │     │
+│  │                  label, workspace folder picker │     │
 │  │                                                 │     │
 │  │  useChat.ts      SSE consumer, message state,   │     │
-│  │                  confirmation handling           │     │
+│  │                  confirmation handling          │     │
 │  └─────────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────┘
 ```
