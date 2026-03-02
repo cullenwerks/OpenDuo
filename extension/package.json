@@ -2,7 +2,7 @@
   "name": "openduo",
   "displayName": "OpenDuo",
   "description": "GitLab Duo Agentic Chat for Federal Enterprise",
-  "version": "0.1.0",
+  "version": "1.0.0-alpha",
   "publisher": "openduo",
   "engines": {
     "vscode": "^1.85.0"
