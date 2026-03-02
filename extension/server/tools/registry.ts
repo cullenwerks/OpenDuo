@@ -1,7 +1,7 @@
 import type { Config, WorkspaceFolder } from '../config';
 import { GitLabClient } from '../gitlabClient';
 import type { ToolDefinition } from '../types';
-import type { Tool } from './tool';
+import type { Tool, ToolContext } from './tool';
 import { toolDefinition } from './tool';
 import { issueTools } from './issues';
 import { mergeRequestTools } from './mergeRequests';
@@ -78,11 +78,11 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map(toolDefinition);
   }
 
-  async execute(name: string, args: Record<string, unknown>): Promise<string> {
+  async execute(name: string, args: Record<string, unknown>, context?: ToolContext): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) throw new Error(`Unknown tool: ${name}`);
     console.log(`[tool] Invoking ${name} with args: ${JSON.stringify(args)}`);
-    const result = await tool.execute(args);
+    const result = await tool.execute(args, context);
     console.log(`[tool] ${name} returned ${result.length} chars`);
     return result;
   }

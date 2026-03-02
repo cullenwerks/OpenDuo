@@ -3,6 +3,7 @@ import type { ChatMessage } from './types';
 import { appendAssistant, appendToolResult, appendUser, buildSystemPrompt } from './prompt';
 import type { ToolRegistry } from './tools/registry';
 import { parseToolCalls, getStreamableText } from './toolCallParser';
+import type { ToolContext } from './tools/tool';
 
 export class ReactLoop {
   constructor(
@@ -94,6 +95,14 @@ export class ReactLoop {
           appendAssistant(history, parsed.text);
         }
 
+        const toolContext: ToolContext = {
+          emitToken: onToken,
+          requestConfirmation: async (_prompt: string) => {
+            // Will be wired up in Task 7 (confirmation infrastructure)
+            throw new Error('Confirmation not yet implemented');
+          },
+        };
+
         for (const tc of allToolCalls) {
           console.log(`[react] Executing tool: ${tc.name}`);
           // Emit the tool indicator BEFORE execution so the user sees
@@ -101,7 +110,7 @@ export class ReactLoop {
           onToken(`\n[Calling ${tc.name}...]\n`);
           let result: string;
           try {
-            result = await tools.execute(tc.name, tc.arguments);
+            result = await tools.execute(tc.name, tc.arguments, toolContext);
           } catch (e) {
             result = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
           }
