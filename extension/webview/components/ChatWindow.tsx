@@ -161,15 +161,10 @@ export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClic
   );
 };
 
-const ThinkingDots: React.FC = () => {
-  const [dots, setDots] = React.useState('');
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDots(prev => prev.length >= 3 ? '' : prev + '.');
-    }, 400);
-    return () => clearInterval(interval);
-  }, []);
-
-  return <span>Thinking{dots}</span>;
-};
+const ThinkingDots: React.FC = () => (
+  <div className="thinking-dots">
+    <span className="dot-1" />
+    <span className="dot-2" />
+    <span className="dot-3" />
+  </div>
+);
