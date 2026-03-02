@@ -9,6 +9,11 @@ export interface ChatMessage {
   isStreaming?: boolean;
 }
 
+export interface PendingConfirmation {
+  id: string;
+  command: string;
+}
+
 export function createMessage(role: MessageRole, content: string): ChatMessage {
   return { id: crypto.randomUUID(), role, content };
 }
@@ -20,6 +25,7 @@ export function appendToken(msg: ChatMessage, token: string): ChatMessage {
 export function useChat(serverUrl: string, getActiveFolder?: () => string | undefined) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const cancelRequest = useCallback(() => {
@@ -126,11 +132,18 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
             break;
           }
 
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsg.id
-              ? appendToken(m, data)
-              : m
-          ));
+          // Check for confirmation request from run_command tool
+          const confirmMatch = data.match(/^\n?\[CONFIRM:([\w-]+)\] (.+)\n?$/);
+          if (confirmMatch) {
+            setPendingConfirmation({ id: confirmMatch[1], command: confirmMatch[2] });
+          } else {
+            // Normal token — append to message
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id
+                ? appendToken(m, data)
+                : m
+            ));
+          }
         }
       }
     } catch (err) {
@@ -153,6 +166,19 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
     }
   }, [serverUrl, cancelRequest]);
 
+  const confirmCommand = useCallback(async (id: string, approved: boolean) => {
+    setPendingConfirmation(null);
+    try {
+      await fetch(`${serverUrl}/command/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, approved }),
+      });
+    } catch (e) {
+      console.error('Failed to send confirmation:', e);
+    }
+  }, [serverUrl]);
+
   const resetChat = useCallback(async () => {
     cancelRequest();
     setMessages([]);
@@ -164,5 +190,5 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
     }
   }, [serverUrl, cancelRequest]);
 
-  return { messages, isLoading, sendMessage, cancelRequest, resetChat };
+  return { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand };
 }
