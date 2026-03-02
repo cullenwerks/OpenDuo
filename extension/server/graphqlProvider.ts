@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { privateTokenHeaders } from './auth';
-import type { Config } from './config';
+import { classifyError, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { flattenMessages } from './prompt';
@@ -16,6 +16,8 @@ function log(...args: unknown[]): void {
 export class GraphQLProvider implements LlmProvider {
   private readonly baseUrl: string;
   private readonly pat: string;
+  private readonly debug: DebugFlags;
+  private readonly hasProxy: boolean;
   private userGid: string | null = null;
   private projectContext: { projectGid: string; namespaceGid: string } | null = null;
   private projectContextResolved = false;
@@ -24,7 +26,28 @@ export class GraphQLProvider implements LlmProvider {
   constructor(config: Config) {
     this.baseUrl = config.gitlabUrl.replace(/\/+$/, '');
     this.pat = config.pat;
+    this.debug = config.debug;
+    this.hasProxy = !!config.proxyUrl;
     this.workspacePath = config.workspaceFolders[0]?.path ?? null;
+  }
+
+  private debugLog(context: string, err: unknown): void {
+    const categories = classifyError(err, this.hasProxy);
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = (err as any)?.code ?? '';
+    const stack = err instanceof Error ? err.stack ?? '' : '';
+    const cause = (err as any)?.cause;
+
+    for (const cat of categories) {
+      if (this.debug[cat]) {
+        console.log(`[${cat}] ${TAG} ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+        if (stack) console.log(`[${cat}] ${TAG} stack: ${stack}`);
+        if (cause) console.log(`[${cat}] ${TAG} cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
+    if (categories.length === 0 && this.debug.serverErrors) {
+      console.log(`[serverErrors] ${TAG} ${context}: ${msg}`);
+    }
   }
 
   async *chatStream(messages: ChatMessage[]): AsyncIterable<ModelResponse> {
@@ -42,7 +65,16 @@ export class GraphQLProvider implements LlmProvider {
     const wsUrl = buildWsUrl(this.baseUrl);
     log('connecting WS:', wsUrl);
 
-    const ws = await connectWs(wsUrl, this.pat, this.baseUrl);
+    let ws: WebSocket;
+    try {
+      ws = await connectWs(wsUrl, this.pat, this.baseUrl);
+    } catch (err) {
+      this.debugLog(`WebSocket connect ${wsUrl}`, err);
+      if (this.debug.webSocketErrors) {
+        console.log(`[webSocketErrors] ${TAG} WS URL: ${wsUrl}`);
+      }
+      throw err;
+    }
     log('WS connected');
 
     try {
@@ -58,8 +90,19 @@ export class GraphQLProvider implements LlmProvider {
     if (this.userGid) return this.userGid;
 
     const url = `${this.baseUrl}/api/v4/user`;
-    const resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
+    let resp: Response;
+    try {
+      resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
+    } catch (err) {
+      this.debugLog(`GET ${url}`, err);
+      throw err;
+    }
     if (!resp.ok) {
+      if (this.debug.apiErrors) {
+        const body = await resp.text().catch(() => '');
+        console.log(`[apiErrors] ${TAG} GET ${url}: HTTP ${resp.status}`);
+        console.log(`[apiErrors] ${TAG} response body: ${body.slice(0, 2000)}`);
+      }
       throw new Error(`GitLab user endpoint error: HTTP ${resp.status}`);
     }
     const data = (await resp.json()) as { id: number };
@@ -89,6 +132,11 @@ export class GraphQLProvider implements LlmProvider {
       const resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
       if (!resp.ok) {
         log('project lookup failed:', resp.status);
+        if (this.debug.apiErrors) {
+          const body = await resp.text().catch(() => '');
+          console.log(`[apiErrors] ${TAG} GET ${url}: HTTP ${resp.status}`);
+          console.log(`[apiErrors] ${TAG} response body: ${body.slice(0, 2000)}`);
+        }
         return;
       }
       const data = (await resp.json()) as {
@@ -102,6 +150,7 @@ export class GraphQLProvider implements LlmProvider {
       log('resolved project context:', this.projectContext);
     } catch (e) {
       log('project context resolution error:', (e as Error).message);
+      this.debugLog('project context resolution', e);
     }
   }
 
@@ -181,19 +230,31 @@ export class GraphQLProvider implements LlmProvider {
     }
 
     const variables = { input };
+    const url = `${this.baseUrl}/api/graphql`;
 
-    log('aiAction POST to', `${this.baseUrl}/api/graphql`);
-    const resp = await fetch(`${this.baseUrl}/api/graphql`, {
-      method: 'POST',
-      headers: privateTokenHeaders(this.pat),
-      body: JSON.stringify({ query: mutation, variables }),
-    });
+    log('aiAction POST to', url);
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        headers: privateTokenHeaders(this.pat),
+        body: JSON.stringify({ query: mutation, variables }),
+      });
+    } catch (err) {
+      this.debugLog(`POST ${url}`, err);
+      throw err;
+    }
 
     log('aiAction HTTP status:', resp.status);
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
       log('aiAction error body:', body);
+      if (this.debug.apiErrors) {
+        console.log(`[apiErrors] ${TAG} POST ${url}: HTTP ${resp.status}`);
+        console.log(`[apiErrors] ${TAG} response body: ${body.slice(0, 2000)}`);
+        console.log(`[apiErrors] ${TAG} response headers: ${JSON.stringify(Object.fromEntries(resp.headers.entries()))}`);
+      }
       throw new Error(`aiAction HTTP error: HTTP ${resp.status}`);
     }
 
@@ -206,9 +267,15 @@ export class GraphQLProvider implements LlmProvider {
 
     if (data.errors?.length) {
       const msg = data.errors.map((e) => e.message).join('; ');
+      if (this.debug.apiErrors) {
+        console.log(`[apiErrors] ${TAG} aiAction GraphQL errors: ${JSON.stringify(data.errors)}`);
+      }
       throw new Error(`aiAction mutation errors: ${msg}`);
     }
     if (data.data?.aiAction?.errors?.length) {
+      if (this.debug.apiErrors) {
+        console.log(`[apiErrors] ${TAG} aiAction field errors: ${JSON.stringify(data.data.aiAction.errors)}`);
+      }
       throw new Error(`aiAction field errors: ${data.data.aiAction.errors.join('; ')}`);
     }
   }

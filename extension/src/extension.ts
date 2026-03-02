@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { PatManager } from './patManager';
 import { ServerManager } from './server';
-import { getOutputChannel, log, logDebug, logError, logInfo, logWarn, showError } from './logger';
+import { getOutputChannel, logDebug, logError, logInfo, logWarn, showError } from './logger';
 import { ChatViewProvider } from './chatView';
 
 let serverManager: ServerManager | null = null;
@@ -27,6 +27,86 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const serverScript = path.join(context.extensionPath, 'dist', 'server.js');
   logDebug(`Server script path: ${serverScript}`);
 
+  // ---------------------------------------------------------------------------
+  // ensureServer — lazily starts the server if PAT + URL are configured.
+  // Called both when the webview panel opens and from the openChat command.
+  // ---------------------------------------------------------------------------
+  async function ensureServer(): Promise<boolean> {
+    const pat = await patManager.get();
+    if (!pat) {
+      logDebug('[ensureServer] No PAT configured — server not started');
+      return false;
+    }
+    const cfg = vscode.workspace.getConfiguration('openduo');
+    const gitlabUrl = cfg.get<string>('gitlabUrl', '');
+    if (!gitlabUrl) {
+      logDebug('[ensureServer] openduo.gitlabUrl not set — server not started');
+      return false;
+    }
+
+    const chatProvider = cfg.get<string>('chatProvider', 'rest');
+    const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).map(f => ({
+      name: f.name,
+      path: f.uri.fsPath,
+    }));
+
+    const desiredEnv: Record<string, string> = {
+      GITLAB_URL: gitlabUrl,
+      GITLAB_PAT: pat,
+      OPENDUO_CHAT_PROVIDER: chatProvider,
+      OPENDUO_WORKSPACE_FOLDERS: JSON.stringify(workspaceFolders),
+    };
+
+    // Restart if settings changed since last launch.
+    const envChanged = Object.keys(desiredEnv).some(
+      (k) => desiredEnv[k] !== activeServerEnv[k],
+    );
+    if (envChanged && serverManager?.isRunning()) {
+      logInfo('[ensureServer] Settings changed — restarting server');
+      await serverManager.stop();
+      serverManager = null;
+    }
+
+    if (serverManager?.isRunning()) {
+      return true;
+    }
+
+    logInfo('[ensureServer] Starting OpenDuo server...');
+    try {
+      serverManager = new ServerManager(serverScript, desiredEnv);
+      activeServerEnv = desiredEnv;
+      await serverManager.start(getOutputChannel());
+      serverManager.setIpcHandler(async (method: string, params: Record<string, unknown>) => {
+        logDebug(`IPC handler: method=${method}`);
+        switch (method) {
+          case 'getDiagnostics':
+            return handleGetDiagnostics(params);
+          case 'getEditorContext':
+            return handleGetEditorContext();
+          default:
+            logError(`Unknown IPC method: ${method}`);
+            throw new Error(`Unknown IPC method: ${method}`);
+        }
+      });
+      logInfo(`[ensureServer] Server running at ${serverManager.serverUrl()}`);
+      return true;
+    } catch (err) {
+      logError('[ensureServer] Failed to start OpenDuo server', err);
+      serverManager = null;
+      return false;
+    }
+  }
+
+  // When the webview panel becomes visible, try to start the server
+  // automatically.  The webview's health-check polling will detect when
+  // the server becomes available and update the status bar.
+  chatViewProvider.onWebviewReady(() => {
+    logInfo('Webview ready — attempting to auto-start server');
+    ensureServer().catch((err) => {
+      logError('Auto-start failed', err);
+    });
+  });
+
   // Register: Configure PAT
   context.subscriptions.push(
     vscode.commands.registerCommand('openduo.configurePat', async () => {
@@ -35,6 +115,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (pat) {
         logInfo('PAT saved successfully');
         vscode.window.showInformationMessage('OpenDuo: PAT saved successfully.');
+        // If the webview is already open, try starting the server now that
+        // we have a PAT.
+        ensureServer().catch((err) => {
+          logError('Server start after PAT config failed', err);
+        });
       } else {
         logInfo('PAT configuration cancelled or not provided');
       }
@@ -67,9 +152,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       logDebug(`GitLab URL: ${gitlabUrl}`);
-
-      const chatProvider = cfg.get<string>('chatProvider', 'rest');
-      logDebug(`Chat provider: ${chatProvider}`);
+      logDebug(`Chat provider: ${cfg.get<string>('chatProvider', 'rest')}`);
 
       // Log proxy configuration for diagnostics
       const httpCfg = vscode.workspace.getConfiguration('http');
@@ -80,57 +163,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logDebug('No VS Code http.proxy setting configured');
       }
 
-      // Collect open workspace folders
-      const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).map(f => ({
-        name: f.name,
-        path: f.uri.fsPath,
-      }));
-      logDebug(`Workspace folders: ${workspaceFolders.map(f => f.name).join(', ') || '(none)'}`);
-
-      const desiredEnv: Record<string, string> = {
-        GITLAB_URL: gitlabUrl,
-        GITLAB_PAT: pat,
-        OPENDUO_CHAT_PROVIDER: chatProvider,
-        OPENDUO_WORKSPACE_FOLDERS: JSON.stringify(workspaceFolders),
-      };
-
-      // Restart the server if settings changed since the last launch.
-      const envChanged = Object.keys(desiredEnv).some(
-        (k) => desiredEnv[k] !== activeServerEnv[k],
-      );
-      if (envChanged && serverManager?.isRunning()) {
-        logInfo('Settings changed — restarting server');
-        await serverManager.stop();
-        serverManager = null;
+      const started = await ensureServer();
+      if (!started) {
+        showError('OpenDuo: Failed to start server');
+        return;
       }
 
-      if (!serverManager || !serverManager.isRunning()) {
-        logInfo('Starting OpenDuo server...');
-        try {
-          serverManager = new ServerManager(serverScript, desiredEnv);
-          activeServerEnv = desiredEnv;
-          await serverManager.start(getOutputChannel());
-          serverManager.setIpcHandler(async (method: string, params: Record<string, unknown>) => {
-            logDebug(`IPC handler: method=${method}`);
-            switch (method) {
-              case 'getDiagnostics':
-                return handleGetDiagnostics(params);
-              case 'getEditorContext':
-                return handleGetEditorContext();
-              default:
-                logError(`Unknown IPC method: ${method}`);
-                throw new Error(`Unknown IPC method: ${method}`);
-            }
-          });
-        } catch (err) {
-          logError('Failed to start OpenDuo server', err);
-          showError('OpenDuo: Failed to start server', err);
-          serverManager = null;
-          return;
-        }
-      }
-
-      logInfo(`Server running at ${serverManager.serverUrl()}`);
+      logInfo(`Server running at ${serverManager!.serverUrl()}`);
       await vscode.commands.executeCommand('workbench.view.extension.openduo');
     })
   );

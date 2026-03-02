@@ -53,6 +53,46 @@
           ],
           "default": "rest",
           "description": "Which GitLab Duo Chat API to use. Use 'rest' for self-managed EE, 'graphql' for GitLab.com."
+        },
+        "openduo.rejectUnauthorized": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate SSL/TLS certificates when connecting to GitLab. Disable for self-signed certificates not in the system trust store. WARNING: disabling this reduces connection security."
+        },
+        "openduo.customCaCertPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a PEM-formatted CA certificate file to trust when connecting to GitLab. Useful for enterprise environments with internal certificate authorities."
+        },
+        "openduo.debug.networkErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for network connection errors (DNS resolution, connection refused, timeouts)."
+        },
+        "openduo.debug.sslErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for SSL/TLS certificate validation errors."
+        },
+        "openduo.debug.proxyErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for HTTP proxy configuration and tunnel errors."
+        },
+        "openduo.debug.apiErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for GitLab API errors including full HTTP status codes and response bodies."
+        },
+        "openduo.debug.webSocketErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for WebSocket/ActionCable connection and framing errors."
+        },
+        "openduo.debug.serverErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed diagnostics for internal server process errors (startup failures, IPC issues, crashes)."
         }
       }
     },
