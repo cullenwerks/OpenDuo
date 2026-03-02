@@ -332,6 +332,85 @@ export function workspaceTools(
     },
 
     {
+      name: 'edit_workspace_file',
+      description:
+        "Edit specific lines in a file in the user's local workspace. " +
+        'Use this instead of write_workspace_file when you only need to change part of a file. ' +
+        'Provide one or more edits, each specifying a line range and replacement text. ' +
+        'Lines are 1-indexed and inclusive. Use empty new_text to delete lines.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'File path relative to the workspace root',
+          },
+          edits: {
+            type: 'array',
+            description: 'Array of edits to apply',
+            items: {
+              type: 'object',
+              properties: {
+                start_line: { type: 'number', description: 'First line to replace (1-indexed)' },
+                end_line: { type: 'number', description: 'Last line to replace (1-indexed, inclusive)' },
+                new_text: { type: 'string', description: 'Replacement text (use empty string to delete lines)' },
+              },
+              required: ['start_line', 'end_line', 'new_text'],
+            },
+          },
+        },
+        required: ['file_path', 'edits'],
+      }),
+      async execute(args) {
+        const root = activeRoot();
+        const filePath = args.file_path as string;
+        const abs = safePath(root, filePath);
+        if (!abs) return 'Error: Path is outside the workspace.';
+        if (isBinary(abs)) return 'Error: Cannot edit binary files.';
+
+        let content: string;
+        try {
+          const stat = fs.statSync(abs);
+          if (stat.isDirectory()) return 'Error: Path is a directory.';
+          if (stat.size > MAX_FILE_SIZE) return `Error: File too large (${(stat.size / 1024).toFixed(0)} KB).`;
+          content = fs.readFileSync(abs, 'utf-8');
+        } catch (e) {
+          return `Error: ${(e as Error).message}`;
+        }
+
+        const edits = args.edits as Array<{ start_line: number; end_line: number; new_text: string }>;
+        if (!edits || edits.length === 0) return 'Error: No edits provided.';
+
+        const lines = content.split('\n');
+        // Track whether file ends with newline
+        const trailingNewline = content.endsWith('\n');
+        if (trailingNewline && lines[lines.length - 1] === '') {
+          lines.pop();
+        }
+
+        // Sort edits by start_line descending so we apply bottom-up
+        // without invalidating line numbers
+        const sorted = [...edits].sort((a, b) => b.start_line - a.start_line);
+
+        for (const edit of sorted) {
+          const start = edit.start_line - 1; // Convert to 0-indexed
+          const end = edit.end_line; // splice end is exclusive, so end_line (1-indexed) works
+
+          if (start < 0 || end > lines.length || start >= end) {
+            return `Error: Invalid line range ${edit.start_line}-${edit.end_line} (file has ${lines.length} lines).`;
+          }
+
+          const newLines = edit.new_text === '' ? [] : edit.new_text.split('\n');
+          lines.splice(start, end - start, ...newLines);
+        }
+
+        const result = lines.join('\n') + (trailingNewline ? '\n' : '');
+        fs.writeFileSync(abs, result, 'utf-8');
+        return `Successfully edited ${filePath} (${edits.length} edit(s) applied, ${lines.length} lines total).`;
+      },
+    },
+
+    {
       name: 'get_workspace_info',
       description:
         "Get information about the user's active workspace — name, root path, " +
