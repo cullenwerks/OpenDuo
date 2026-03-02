@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatWindow } from './ChatWindow';
 import { InputBar } from './InputBar';
-import { StatusBar } from './StatusBar';
+import { Header } from './Header';
+import { ToolStatusArea } from './ToolCallRow';
 import { useChat } from '../hooks/useChat';
 
 declare const window: Window & { __OPENDUO_SERVER_URL__?: string };
@@ -18,7 +19,7 @@ export const ChatApp: React.FC = () => {
   activeFolderRef.current = activeFolder;
   const getActiveFolder = useCallback(() => activeFolderRef.current, []);
 
-  const { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand } = useChat(SERVER_URL, getActiveFolder);
+  const { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand, toolCalls } = useChat(SERVER_URL, getActiveFolder);
 
   // Fetch workspace folders whenever the server becomes reachable.
   // Re-running on `connected` means we pick up changes when the server
@@ -58,11 +59,10 @@ export const ChatApp: React.FC = () => {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <StatusBar
+      <Header
         connected={connected}
         model="GitLab Duo (Agentic)"
         onNewChat={resetChat}
-        showNewChat={messages.length > 0}
         workspaceFolders={workspaceFolders}
         activeFolder={activeFolder}
         onFolderChange={setActiveFolder}
@@ -74,6 +74,7 @@ export const ChatApp: React.FC = () => {
         pendingConfirmation={pendingConfirmation}
         onConfirm={confirmCommand}
       />
+      <ToolStatusArea toolCalls={toolCalls} />
       <InputBar
         onSend={(text) => sendMessage(text)}
         onCancel={cancelRequest}
