@@ -33,6 +33,10 @@ const serverOpts = {
   platform: 'node',
   target: 'node20',
   sourcemap: true,
+  // undici is built into Node.js 18+ (it backs the global fetch()).
+  // Marking it external lets us call require('undici') at runtime to configure
+  // the global ProxyAgent without bundling the entire undici library.
+  external: ['undici'],
 };
 
 async function main() {

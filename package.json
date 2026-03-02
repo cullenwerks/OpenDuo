@@ -1,0 +1,23 @@
+{
+  "name": "openduo",
+  "version": "1.0.0",
+  "description": "VS Code Extension for Gitlab Duo Agentic Chat",
+  "homepage": "https://github.com/cullenwerks/OpenDuo#readme",
+  "bugs": {
+    "url": "https://github.com/cullenwerks/OpenDuo/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cullenwerks/OpenDuo.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

@@ -23,8 +23,8 @@ export class PatManager {
       password: true,
       ignoreFocusOut: true,
       validateInput: (v) => {
-        if (!v.startsWith('glpat-')) return 'PAT must start with glpat-';
-        if (v.length < 26) return 'PAT appears too short';
+        if (!v || v.trim().length === 0) return 'PAT must not be empty';
+        if (v.trim().length < 10) return 'PAT appears too short';
         return null;
       },
     });

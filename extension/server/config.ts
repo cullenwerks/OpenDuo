@@ -1,4 +1,4 @@
-export type ChatProvider = 'rest' | 'graphql';
+﻿export type ChatProvider = 'rest' | 'graphql';
 
 export interface WorkspaceFolder {
   name: string;
@@ -11,6 +11,7 @@ export interface Config {
   serverPort: number;
   chatProvider: ChatProvider;
   workspaceFolders: WorkspaceFolder[];
+  proxyUrl: string | null;
 }
 
 export function configFromEnv(): Config {
@@ -49,9 +50,19 @@ export function configFromEnv(): Config {
     try {
       workspaceFolders = JSON.parse(foldersJson);
     } catch {
-      console.warn('Invalid OPENDUO_WORKSPACE_FOLDERS JSON, ignoring');
+      console.warn('[config] Invalid OPENDUO_WORKSPACE_FOLDERS JSON, ignoring');
     }
   }
 
-  return { gitlabUrl, pat, serverPort, chatProvider, workspaceFolders };
+  // Proxy: passed from the VS Code extension via HTTP_PROXY / HTTPS_PROXY env vars.
+  // The extension reads the proxy from VS Code's own http.proxy setting (not the OS),
+  // so the child process receives the right value here rather than the system proxy.
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.HTTP_PROXY ||
+    process.env.https_proxy ||
+    process.env.http_proxy ||
+    null;
+
+  return { gitlabUrl, pat, serverPort, chatProvider, workspaceFolders, proxyUrl };
 }

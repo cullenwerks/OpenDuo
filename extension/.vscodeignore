@@ -3,6 +3,7 @@ src/
 server/
 webview/
 __mocks__/
+bin/
 *.ts
 *.tsx
 *.map
