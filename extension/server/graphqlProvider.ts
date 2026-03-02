@@ -5,6 +5,7 @@ import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { flattenMessages } from './prompt';
 import { randomUUID } from 'crypto';
+import { extractProjectPath } from './gitRemote';
 
 const TAG = '[graphql]';
 
@@ -16,15 +17,20 @@ export class GraphQLProvider implements LlmProvider {
   private readonly baseUrl: string;
   private readonly pat: string;
   private userGid: string | null = null;
+  private projectContext: { projectGid: string; namespaceGid: string } | null = null;
+  private projectContextResolved = false;
+  private readonly workspacePath: string | null;
 
   constructor(config: Config) {
     this.baseUrl = config.gitlabUrl.replace(/\/+$/, '');
     this.pat = config.pat;
+    this.workspacePath = config.workspaceFolders[0]?.path ?? null;
   }
 
   async *chatStream(messages: ChatMessage[]): AsyncIterable<ModelResponse> {
     const userGid = await this.resolveUserGid();
     log('userGid resolved:', userGid);
+    await this.resolveProjectContext();
 
     // Flatten the full conversation (system prompt + history + tool results)
     // into a single content string so the LLM sees the complete context.
@@ -59,6 +65,44 @@ export class GraphQLProvider implements LlmProvider {
     const data = (await resp.json()) as { id: number };
     this.userGid = `gid://gitlab/User/${data.id}`;
     return this.userGid;
+  }
+
+  private async resolveProjectContext(): Promise<void> {
+    if (this.projectContextResolved) return;
+    this.projectContextResolved = true;
+
+    if (!this.workspacePath) {
+      log('no workspace path, skipping project context');
+      return;
+    }
+
+    const projectPath = await extractProjectPath(this.workspacePath, this.baseUrl);
+    if (!projectPath) {
+      log('could not extract GitLab project from git remote');
+      return;
+    }
+    log('detected GitLab project path:', projectPath);
+
+    try {
+      const encoded = encodeURIComponent(projectPath);
+      const url = `${this.baseUrl}/api/v4/projects/${encoded}`;
+      const resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
+      if (!resp.ok) {
+        log('project lookup failed:', resp.status);
+        return;
+      }
+      const data = (await resp.json()) as {
+        id: number;
+        namespace: { id: number; full_path: string };
+      };
+      this.projectContext = {
+        projectGid: `gid://gitlab/Project/${data.id}`,
+        namespaceGid: `gid://gitlab/Namespace/${data.namespace.id}`,
+      };
+      log('resolved project context:', this.projectContext);
+    } catch (e) {
+      log('project context resolution error:', (e as Error).message);
+    }
   }
 
   private async *driveWs(
@@ -124,12 +168,19 @@ export class GraphQLProvider implements LlmProvider {
       'mutation OpenDuoAiAction($input: AiActionInput!) { ' +
       'aiAction(input: $input) { requestId errors } }';
 
-    const variables = {
-      input: {
-        chat: { content, resourceId: userGid },
-        clientSubscriptionId: clientSubId,
-      },
+    const chatInput: Record<string, unknown> = { content, resourceId: userGid };
+    const input: Record<string, unknown> = {
+      chat: chatInput,
+      clientSubscriptionId: clientSubId,
     };
+
+    if (this.projectContext) {
+      chatInput.namespaceId = this.projectContext.namespaceGid;
+      input.rootNamespaceId = this.projectContext.namespaceGid;
+      input.projectId = this.projectContext.projectGid;
+    }
+
+    const variables = { input };
 
     log('aiAction POST to', `${this.baseUrl}/api/graphql`);
     const resp = await fetch(`${this.baseUrl}/api/graphql`, {
