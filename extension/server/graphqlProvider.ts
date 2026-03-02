@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { privateTokenHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, unwrapCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { flattenMessages } from './prompt';
@@ -36,17 +36,18 @@ export class GraphQLProvider implements LlmProvider {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] ${TAG} ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
         if (stack) console.log(`[${cat}] ${TAG} stack: ${stack}`);
-        if (cause) console.log(`[${cat}] ${TAG} cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+        console.log(`[${cat}] ${TAG} cause chain:\n${causeChain}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] ${TAG} ${context}: ${msg}`);
+      console.log(`[serverErrors] ${TAG} cause chain:\n${causeChain}`);
     }
   }
 
@@ -95,13 +96,23 @@ export class GraphQLProvider implements LlmProvider {
       resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
     } catch (err) {
       this.debugLog(`GET ${url}`, err);
-      throw err;
+      const rootCause = unwrapCauseChain(err);
+      throw new Error(
+        `Cannot reach GitLab at ${this.baseUrl} — ${rootCause}. ` +
+        `Check your network connection, GitLab URL, and SSL/proxy settings.`,
+      );
     }
     if (!resp.ok) {
       if (this.debug.apiErrors) {
         const body = await resp.text().catch(() => '');
         console.log(`[apiErrors] ${TAG} GET ${url}: HTTP ${resp.status}`);
         console.log(`[apiErrors] ${TAG} response body: ${body.slice(0, 2000)}`);
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(
+          `GitLab authentication failed (HTTP ${resp.status}). ` +
+          `Check that your Personal Access Token is valid and has the required scopes (api).`,
+        );
       }
       throw new Error(`GitLab user endpoint error: HTTP ${resp.status}`);
     }
@@ -161,14 +172,14 @@ export class GraphQLProvider implements LlmProvider {
     clientSubId: string,
   ): AsyncGenerator<ModelResponse> {
     // Build the GraphQL subscription query.
-    // All three filter arguments (userId, resourceId, clientSubscriptionId)
-    // must be present so the subscription topic matches what the server
-    // publishes when the aiAction mutation completes.  For Duo Chat the
-    // resourceId is the user's own GID.
+    // The official GitLab VS Code extension subscribes with userId,
+    // aiAction, and clientSubscriptionId — NOT resourceId.  Using aiAction
+    // as a filter ensures the subscription topic matches what the server
+    // publishes for Duo Chat completions.
     const subQuery =
-      'subscription OpenDuoCompletion($userId: UserID!, $resourceId: AiModelID!, $clientSubscriptionId: String!) { ' +
-      'aiCompletionResponse(userId: $userId, resourceId: $resourceId, clientSubscriptionId: $clientSubscriptionId) { ' +
-      'content requestId errors } }';
+      'subscription aiCompletionResponse($userId: UserID, $clientSubscriptionId: String, $aiAction: AiAction) { ' +
+      'aiCompletionResponse(userId: $userId, aiAction: $aiAction, clientSubscriptionId: $clientSubscriptionId) { ' +
+      'id requestId content errors role timestamp type chunkId } }';
 
     // GitLab's GraphqlChannel#subscribed reads query, variables, and
     // operationName from the channel params (the identifier).  It does NOT
@@ -178,8 +189,13 @@ export class GraphQLProvider implements LlmProvider {
       channel: 'GraphqlChannel',
       channelId,
       query: subQuery,
-      variables: { userId: userGid, resourceId: userGid, clientSubscriptionId: clientSubId },
-      operationName: 'OpenDuoCompletion',
+      variables: JSON.stringify({
+        htmlResponse: false,
+        userId: userGid,
+        aiAction: 'CHAT',
+        clientSubscriptionId: clientSubId,
+      }),
+      operationName: 'aiCompletionResponse',
     });
 
     // Step 1: wait for ActionCable "welcome"
@@ -217,10 +233,20 @@ export class GraphQLProvider implements LlmProvider {
       'mutation OpenDuoAiAction($input: AiActionInput!) { ' +
       'aiAction(input: $input) { requestId errors } }';
 
-    const chatInput: Record<string, unknown> = { content, resourceId: userGid };
+    // The official GitLab VS Code extension sends resourceId as the project
+    // GID (or null if no project context), NOT the user GID.  Sending the
+    // user GID here can trigger a G3001 "requires a different Duo
+    // subscription" error on self-managed EE instances because entitlement
+    // checks are performed against the resource.
+    const resourceId = this.projectContext?.projectGid ?? null;
+
+    const chatInput: Record<string, unknown> = { content, resourceId };
     const input: Record<string, unknown> = {
       chat: chatInput,
       clientSubscriptionId: clientSubId,
+      // Required since GitLab 17.3+ — identifies the client platform so the
+      // server can route the request through the correct entitlement path.
+      platformOrigin: 'vs_code_extension',
     };
 
     if (this.projectContext) {
@@ -242,7 +268,8 @@ export class GraphQLProvider implements LlmProvider {
       });
     } catch (err) {
       this.debugLog(`POST ${url}`, err);
-      throw err;
+      const rootCause = unwrapCauseChain(err);
+      throw new Error(`aiAction request failed — ${rootCause}`);
     }
 
     log('aiAction HTTP status:', resp.status);
@@ -348,6 +375,9 @@ interface CableResponse {
         aiCompletionResponse?: {
           content?: string;
           errors?: (string | { message: string })[];
+          chunkId?: number;
+          role?: string;
+          type?: string;
         };
       };
     };
