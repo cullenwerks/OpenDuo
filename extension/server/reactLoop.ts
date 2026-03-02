@@ -3,11 +3,14 @@ import type { ChatMessage } from './types';
 import { appendAssistant, appendToolResult, appendUser, buildSystemPrompt } from './prompt';
 import type { ToolRegistry } from './tools/registry';
 import { parseToolCalls, getStreamableText } from './toolCallParser';
+import type { ToolContext } from './tools/tool';
+import type { ConfirmationManager } from './confirmations';
 
 export class ReactLoop {
   constructor(
     private readonly maxIterations: number,
     private readonly gitlabUrl: string,
+    private readonly confirmations?: ConfirmationManager,
   ) {}
 
   async run(
@@ -94,6 +97,13 @@ export class ReactLoop {
           appendAssistant(history, parsed.text);
         }
 
+        const toolContext: ToolContext = {
+          emitToken: onToken,
+          requestConfirmation: this.confirmations
+            ? (prompt) => this.confirmations!.requestConfirmation(prompt, onToken)
+            : async () => { throw new Error('Confirmation not available'); },
+        };
+
         for (const tc of allToolCalls) {
           console.log(`[react] Executing tool: ${tc.name}`);
           // Emit the tool indicator BEFORE execution so the user sees
@@ -101,7 +111,7 @@ export class ReactLoop {
           onToken(`\n[Calling ${tc.name}...]\n`);
           let result: string;
           try {
-            result = await tools.execute(tc.name, tc.arguments);
+            result = await tools.execute(tc.name, tc.arguments, toolContext);
           } catch (e) {
             result = `Tool error: ${e instanceof Error ? e.message : String(e)}`;
           }

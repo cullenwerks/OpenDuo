@@ -76,6 +76,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         serverManager = new ServerManager(serverScript, desiredEnv);
         activeServerEnv = desiredEnv;
         await serverManager.start(getOutputChannel());
+        serverManager.setIpcHandler(async (method: string, params: Record<string, unknown>) => {
+          switch (method) {
+            case 'getDiagnostics':
+              return handleGetDiagnostics(params);
+            case 'getEditorContext':
+              return handleGetEditorContext();
+            default:
+              throw new Error(`Unknown IPC method: ${method}`);
+          }
+        });
       }
       log('Server running at ' + serverManager.serverUrl());
       ChatPanel.createOrShow(context.extensionUri, serverManager.serverUrl());
@@ -87,6 +97,84 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   log('OpenDuo activated.');
+}
+
+function handleGetDiagnostics(params: Record<string, unknown>): Array<Record<string, unknown>> {
+  const filterPath = params.filePath as string | undefined;
+  const filterSeverity = params.severity as string | undefined;
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const allDiagnostics = vscode.languages.getDiagnostics();
+  const results: Array<Record<string, unknown>> = [];
+  const MAX_RESULTS = 100;
+
+  const severityMap: Record<number, string> = {
+    0: 'error',
+    1: 'warning',
+    2: 'info',
+    3: 'hint',
+  };
+
+  for (const [uri, diagnostics] of allDiagnostics) {
+    if (results.length >= MAX_RESULTS) break;
+
+    const absPath = uri.fsPath;
+    const relPath = workspaceRoot
+      ? path.relative(workspaceRoot, absPath).replace(/\\/g, '/')
+      : absPath;
+
+    if (filterPath && relPath !== filterPath) continue;
+
+    for (const d of diagnostics) {
+      if (results.length >= MAX_RESULTS) break;
+
+      const sev = severityMap[d.severity] ?? 'info';
+      if (filterSeverity && sev !== filterSeverity) continue;
+
+      results.push({
+        file: relPath,
+        line: d.range.start.line + 1,
+        column: d.range.start.character,
+        severity: sev,
+        message: d.message,
+        source: d.source ?? '',
+      });
+    }
+  }
+
+  return results;
+}
+
+function handleGetEditorContext(): Record<string, unknown> | null {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return null;
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const absPath = editor.document.uri.fsPath;
+  const filePath = workspaceRoot
+    ? path.relative(workspaceRoot, absPath).replace(/\\/g, '/')
+    : absPath;
+
+  const sel = editor.selection;
+  const selectedText = editor.document.getText(sel);
+
+  return {
+    filePath,
+    languageId: editor.document.languageId,
+    selection: selectedText.slice(0, 10240), // 10 KB max
+    selectionRange: {
+      startLine: sel.start.line + 1,
+      startCol: sel.start.character,
+      endLine: sel.end.line + 1,
+      endCol: sel.end.character,
+    },
+    visibleRange: {
+      startLine: (editor.visibleRanges[0]?.start.line ?? 0) + 1,
+      endLine: (editor.visibleRanges[0]?.end.line ?? 0) + 1,
+    },
+    isDirty: editor.document.isDirty,
+    lineCount: editor.document.lineCount,
+  };
 }
 
 export function deactivate(): void {

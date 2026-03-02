@@ -7,6 +7,7 @@ export class ServerManager {
   private process: cp.ChildProcess | null = null;
   private readonly port: number;
   private outputChannel: vscode.OutputChannel | null = null;
+  private ipcRequestHandler: ((method: string, params: Record<string, unknown>) => Promise<unknown>) | null = null;
 
   constructor(
     private readonly scriptPath: string,
@@ -20,8 +21,16 @@ export class ServerManager {
     return this.process !== null && !this.process.killed;
   }
 
+  hasIpc(): boolean {
+    return true;
+  }
+
   serverUrl(): string {
     return `http://127.0.0.1:${this.port}`;
+  }
+
+  setIpcHandler(handler: (method: string, params: Record<string, unknown>) => Promise<unknown>): void {
+    this.ipcRequestHandler = handler;
   }
 
   async start(outputChannel: vscode.OutputChannel): Promise<void> {
@@ -34,7 +43,7 @@ export class ServerManager {
         ...this.env,
         OPENDUO_PORT: String(this.port),
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
 
     this.process.stdout?.on('data', (d: Buffer) => outputChannel.append(d.toString()));
@@ -42,6 +51,20 @@ export class ServerManager {
     this.process.on('exit', (code) => {
       outputChannel.appendLine(`[OpenDuo] Server exited with code ${code}`);
       this.process = null;
+    });
+
+    this.process.on('message', async (msg: any) => {
+      if (msg?.type === 'request' && typeof msg.id === 'string' && typeof msg.method === 'string') {
+        try {
+          const data = this.ipcRequestHandler
+            ? await this.ipcRequestHandler(msg.method, msg.params ?? {})
+            : null;
+          this.process?.send?.({ type: 'response', id: msg.id, data });
+        } catch (e) {
+          const error = e instanceof Error ? e.message : String(e);
+          this.process?.send?.({ type: 'response', id: msg.id, error });
+        }
+      }
     });
 
     await this.waitForHealth();

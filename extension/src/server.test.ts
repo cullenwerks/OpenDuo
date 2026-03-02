@@ -17,4 +17,12 @@ describe('ServerManager', () => {
     });
     expect(sm.serverUrl()).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
+
+  it('exposes hasIpc method that returns true', () => {
+    const sm = new ServerManager('/fake/dist/server.js', {
+      GITLAB_URL: 'https://gitlab.example.com',
+      GITLAB_PAT: 'glpat-test',
+    });
+    expect(sm.hasIpc()).toBe(true);
+  });
 });

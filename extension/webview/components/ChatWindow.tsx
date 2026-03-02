@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
-import type { ChatMessage } from '../hooks/useChat';
+import type { ChatMessage, PendingConfirmation } from '../hooks/useChat';
 
 const EXAMPLE_PROMPTS = [
   'List my open merge requests',
@@ -13,9 +13,11 @@ interface Props {
   messages: ChatMessage[];
   isLoading?: boolean;
   onExampleClick?: (text: string) => void;
+  pendingConfirmation?: PendingConfirmation | null;
+  onConfirm?: (id: string, approved: boolean) => void;
 }
 
-export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClick }) => {
+export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClick, pendingConfirmation, onConfirm }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,6 +98,61 @@ export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClic
             opacity: 0.7,
           }}>
             <ThinkingDots />
+          </div>
+        </div>
+      )}
+      {pendingConfirmation && onConfirm && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          margin: '0 1rem 0.75rem',
+          borderRadius: '8px',
+          background: 'var(--vscode-editorWidget-background)',
+          border: '1px solid var(--vscode-panel-border)',
+        }}>
+          <div style={{ fontSize: '0.85rem', marginBottom: '0.5rem', opacity: 0.8 }}>
+            The agent wants to run:
+          </div>
+          <code style={{
+            display: 'block',
+            padding: '0.4rem 0.6rem',
+            borderRadius: '4px',
+            background: 'var(--vscode-editor-background)',
+            marginBottom: '0.75rem',
+            fontSize: '0.85rem',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}>
+            {pendingConfirmation.command}
+          </code>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={() => onConfirm(pendingConfirmation.id, true)}
+              style={{
+                background: 'var(--vscode-button-background)',
+                color: 'var(--vscode-button-foreground)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '0.3rem 0.75rem',
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+              }}
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => onConfirm(pendingConfirmation.id, false)}
+              style={{
+                background: 'var(--vscode-button-secondaryBackground)',
+                color: 'var(--vscode-button-secondaryForeground)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '0.3rem 0.75rem',
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+              }}
+            >
+              Deny
+            </button>
           </div>
         </div>
       )}
