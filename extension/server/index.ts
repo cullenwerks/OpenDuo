@@ -6,6 +6,7 @@ import { buildInitialHistory } from './prompt';
 import { ReactLoop } from './reactLoop';
 import { ToolRegistry } from './tools/registry';
 import { validateChatRequest } from './validation';
+import { ConfirmationManager } from './confirmations';
 import type { LlmProvider } from './provider';
 import type { ChatMessage } from './types';
 
@@ -19,6 +20,7 @@ if (config.chatProvider === 'graphql') {
   provider = new GitLabAiProvider(config);
 }
 const tools = new ToolRegistry(config);
+const confirmations = new ConfirmationManager();
 let history: ChatMessage[] = buildInitialHistory(config.gitlabUrl);
 
 // Serialize chat requests so only one runs at a time.
@@ -188,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     try {
       await withTimeout(previousLock, LOCK_TIMEOUT_MS, 'Chat lock wait');
 
-      const reactLoop = new ReactLoop(15, config.gitlabUrl);
+      const reactLoop = new ReactLoop(15, config.gitlabUrl, confirmations);
       const histCopy = [...history];
 
       try {
@@ -244,6 +246,32 @@ const server = http.createServer(async (req, res) => {
     history = buildInitialHistory(config.gitlabUrl);
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
+    return;
+  }
+
+  // POST /command/confirm — resolve a pending tool confirmation
+  if (req.method === 'POST' && url === '/command/confirm') {
+    const body = await readBody(req);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { ...cors, 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      return;
+    }
+
+    const id = parsed.id as string;
+    const approved = parsed.approved === true;
+    if (!id || typeof id !== 'string') {
+      res.writeHead(400, { ...cors, 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing confirmation id' }));
+      return;
+    }
+
+    const found = confirmations.resolve(id, approved);
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' });
+    res.end(JSON.stringify({ status: found ? 'resolved' : 'not_found' }));
     return;
   }
 

@@ -4,11 +4,13 @@ import { appendAssistant, appendToolResult, appendUser, buildSystemPrompt } from
 import type { ToolRegistry } from './tools/registry';
 import { parseToolCalls, getStreamableText } from './toolCallParser';
 import type { ToolContext } from './tools/tool';
+import type { ConfirmationManager } from './confirmations';
 
 export class ReactLoop {
   constructor(
     private readonly maxIterations: number,
     private readonly gitlabUrl: string,
+    private readonly confirmations?: ConfirmationManager,
   ) {}
 
   async run(
@@ -97,10 +99,9 @@ export class ReactLoop {
 
         const toolContext: ToolContext = {
           emitToken: onToken,
-          requestConfirmation: async (_prompt: string) => {
-            // Will be wired up in Task 7 (confirmation infrastructure)
-            throw new Error('Confirmation not yet implemented');
-          },
+          requestConfirmation: this.confirmations
+            ? (prompt) => this.confirmations!.requestConfirmation(prompt, onToken)
+            : async () => { throw new Error('Confirmation not available'); },
         };
 
         for (const tc of allToolCalls) {
