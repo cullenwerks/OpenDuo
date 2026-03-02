@@ -1,8 +1,17 @@
-﻿export type ChatProvider = 'rest' | 'graphql';
+export type ChatProvider = 'rest' | 'graphql';
 
 export interface WorkspaceFolder {
   name: string;
   path: string;
+}
+
+export interface DebugFlags {
+  networkErrors: boolean;
+  sslErrors: boolean;
+  proxyErrors: boolean;
+  apiErrors: boolean;
+  webSocketErrors: boolean;
+  serverErrors: boolean;
 }
 
 export interface Config {
@@ -12,6 +21,35 @@ export interface Config {
   chatProvider: ChatProvider;
   workspaceFolders: WorkspaceFolder[];
   proxyUrl: string | null;
+  rejectUnauthorized: boolean;
+  customCaCertPath: string | null;
+  debug: DebugFlags;
+}
+
+/**
+ * Classify an error into one or more debug categories so callers can decide
+ * whether to emit verbose diagnostics based on the user's debug settings.
+ */
+export type ErrorCategory = keyof DebugFlags;
+
+const SSL_PATTERNS = [
+  'certificate', 'CERT_', 'SSL', 'TLS', 'self signed', 'self-signed',
+  'UNABLE_TO_VERIFY', 'ERR_TLS', 'DEPTH_ZERO',
+];
+const NETWORK_PATTERNS = [
+  'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH',
+  'ENETUNREACH', 'EAI_AGAIN', 'connect', 'timeout', 'DNS',
+];
+const PROXY_PATTERNS = ['proxy', 'ECONNREFUSED', 'tunnel'];
+
+export function classifyError(err: unknown, proxyConfigured: boolean): ErrorCategory[] {
+  const msg = err instanceof Error ? `${err.message} ${(err as any).code ?? ''}` : String(err);
+  const upper = msg.toUpperCase();
+  const categories: ErrorCategory[] = [];
+  if (SSL_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('sslErrors');
+  if (NETWORK_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('networkErrors');
+  if (proxyConfigured && PROXY_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('proxyErrors');
+  return categories;
 }
 
 export function configFromEnv(): Config {
@@ -64,5 +102,21 @@ export function configFromEnv(): Config {
     process.env.http_proxy ||
     null;
 
-  return { gitlabUrl, pat, serverPort, chatProvider, workspaceFolders, proxyUrl };
+  const rejectUnauthorized = process.env.OPENDUO_REJECT_UNAUTHORIZED !== '0';
+  const customCaCertPath = process.env.OPENDUO_CA_CERT || null;
+
+  const envBool = (key: string): boolean => process.env[key] === '1';
+  const debug: DebugFlags = {
+    networkErrors: envBool('OPENDUO_DEBUG_NETWORK'),
+    sslErrors: envBool('OPENDUO_DEBUG_SSL'),
+    proxyErrors: envBool('OPENDUO_DEBUG_PROXY'),
+    apiErrors: envBool('OPENDUO_DEBUG_API'),
+    webSocketErrors: envBool('OPENDUO_DEBUG_WEBSOCKET'),
+    serverErrors: envBool('OPENDUO_DEBUG_SERVER'),
+  };
+
+  return {
+    gitlabUrl, pat, serverPort, chatProvider, workspaceFolders,
+    proxyUrl, rejectUnauthorized, customCaCertPath, debug,
+  };
 }

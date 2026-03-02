@@ -6,8 +6,14 @@ import { logInfo, logDebug, logWarn } from './logger';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
+  private _onWebviewReady: (() => void) | null = null;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
+
+  /** Register a callback that fires when the webview panel is first shown. */
+  onWebviewReady(cb: () => void): void {
+    this._onWebviewReady = cb;
+  }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this._view = webviewView;
@@ -19,6 +25,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.buildHtml(webviewView.webview);
     logInfo('ChatViewProvider: webview resolved');
+
+    // Notify the extension host so it can start the server if needed.
+    // Fire-and-forget — the webview's health-check polling will detect
+    // when the server becomes available.
+    if (this._onWebviewReady) {
+      this._onWebviewReady();
+    }
 
     const msgDisposable = webviewView.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'openCode') {

@@ -63,6 +63,44 @@ export class ServerManager {
       logDebug('[ServerManager] No VS Code proxy configured — clearing proxy env for child process');
     }
 
+    // SSL/TLS settings — enterprise environments may need custom CA certs or
+    // the ability to skip certificate validation for self-signed certs.
+    const cfg = vscode.workspace.getConfiguration('openduo');
+    const rejectUnauthorized = cfg.get<boolean>('rejectUnauthorized', true);
+    const customCaCertPath = cfg.get<string>('customCaCertPath', '');
+    const tlsEnv: Record<string, string> = {};
+    if (!rejectUnauthorized) {
+      tlsEnv['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+      tlsEnv['OPENDUO_REJECT_UNAUTHORIZED'] = '0';
+      logWarn('[ServerManager] SSL certificate validation DISABLED (openduo.rejectUnauthorized=false)');
+    }
+    if (customCaCertPath) {
+      tlsEnv['NODE_EXTRA_CA_CERTS'] = customCaCertPath;
+      tlsEnv['OPENDUO_CA_CERT'] = customCaCertPath;
+      logInfo(`[ServerManager] Custom CA certificate: ${customCaCertPath}`);
+    }
+
+    // Debug logging flags — each category can be independently enabled
+    const debugEnv: Record<string, string> = {};
+    const debugKeys: Array<[string, string]> = [
+      ['debug.networkErrors', 'OPENDUO_DEBUG_NETWORK'],
+      ['debug.sslErrors', 'OPENDUO_DEBUG_SSL'],
+      ['debug.proxyErrors', 'OPENDUO_DEBUG_PROXY'],
+      ['debug.apiErrors', 'OPENDUO_DEBUG_API'],
+      ['debug.webSocketErrors', 'OPENDUO_DEBUG_WEBSOCKET'],
+      ['debug.serverErrors', 'OPENDUO_DEBUG_SERVER'],
+    ];
+    const enabledDebugFlags: string[] = [];
+    for (const [settingKey, envKey] of debugKeys) {
+      if (cfg.get<boolean>(settingKey, false)) {
+        debugEnv[envKey] = '1';
+        enabledDebugFlags.push(settingKey);
+      }
+    }
+    if (enabledDebugFlags.length > 0) {
+      logInfo(`[ServerManager] Debug logging enabled: ${enabledDebugFlags.join(', ')}`);
+    }
+
     const spawnArgs = [this.scriptPath];
     logInfo(`[ServerManager] Spawning server: ${process.execPath} ${spawnArgs.join(' ')}`);
     logDebug(`[ServerManager] Server env keys: ${Object.keys(this.env).join(', ')}`);
@@ -73,6 +111,8 @@ export class ServerManager {
         ...process.env,
         ...this.env,
         ...proxyEnv,
+        ...tlsEnv,
+        ...debugEnv,
         OPENDUO_PORT: String(this.port),
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],

@@ -1,5 +1,5 @@
 import * as http from 'http';
-import { configFromEnv } from './config';
+import { configFromEnv, classifyError } from './config';
 import { GitLabAiProvider } from './gitlabProvider';
 import { GraphQLProvider } from './graphqlProvider';
 import { buildInitialHistory } from './prompt';
@@ -59,9 +59,56 @@ if (config.proxyUrl) {
     serverLog('INFO', 'undici global ProxyAgent installed — all fetch() calls will use VS Code proxy');
   } catch (err) {
     serverLog('WARN', `Failed to configure proxy via undici: ${(err as Error).message}`);
+    if (config.debug.proxyErrors) {
+      serverLog('DEBUG', `[proxyErrors] Proxy setup error: ${(err as Error).stack ?? ''}`);
+    }
   }
 } else {
   serverLog('DEBUG', 'No proxy configured');
+}
+
+// ---------------------------------------------------------------------------
+// SSL/TLS — log current settings for diagnostics
+// ---------------------------------------------------------------------------
+
+if (!config.rejectUnauthorized) {
+  serverLog('WARN', 'SSL certificate validation is DISABLED (rejectUnauthorized=false)');
+}
+if (config.customCaCertPath) {
+  serverLog('INFO', `Custom CA certificate loaded via NODE_EXTRA_CA_CERTS: ${config.customCaCertPath}`);
+}
+
+// ---------------------------------------------------------------------------
+// Debug logging — helper that emits verbose diagnostics only when the
+// corresponding debug category is enabled in the user's settings.
+// ---------------------------------------------------------------------------
+
+function debugLogError(context: string, err: unknown): void {
+  const categories = classifyError(err, !!config.proxyUrl);
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as any)?.code ?? '';
+  const stack = err instanceof Error ? err.stack ?? '' : '';
+  const cause = (err as any)?.cause;
+
+  for (const cat of categories) {
+    if (config.debug[cat]) {
+      serverLog('DEBUG', `[${cat}] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+      if (stack) serverLog('DEBUG', `[${cat}] stack: ${stack}`);
+      if (cause) serverLog('DEBUG', `[${cat}] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
+
+  // If no category matched but serverErrors is enabled, log as a generic server error
+  if (categories.length === 0 && config.debug.serverErrors) {
+    serverLog('DEBUG', `[serverErrors] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+    if (stack) serverLog('DEBUG', `[serverErrors] stack: ${stack}`);
+  }
+}
+
+// Log which debug categories are active
+const activeDebug = Object.entries(config.debug).filter(([, v]) => v).map(([k]) => k);
+if (activeDebug.length > 0) {
+  serverLog('INFO', `Debug logging categories: ${activeDebug.join(', ')}`);
 }
 
 serverLog('INFO', `GitLab URL: ${config.gitlabUrl}`);
@@ -285,6 +332,7 @@ const server = http.createServer(async (req, res) => {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== 'Chat request aborted') {
           serverLog('ERROR', `ReactLoop error: ${msg}`, e instanceof Error ? e.stack : '');
+          debugLogError('ReactLoop', e);
           const safeMsg = msg.replace(/\n/g, ' ');
           safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
         } else {
@@ -294,6 +342,7 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       serverLog('ERROR', `Chat lock/timeout error: ${msg}`);
+      debugLogError('Chat lock/timeout', e);
       const safeMsg = msg.replace(/\n/g, ' ');
       safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
     } finally {

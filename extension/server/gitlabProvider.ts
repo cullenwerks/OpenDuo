@@ -1,5 +1,5 @@
 import { bearerHeaders } from './auth';
-import type { Config } from './config';
+import { classifyError, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse, ToolDefinition } from './types';
 import { flattenMessages } from './prompt';
@@ -7,10 +7,33 @@ import { flattenMessages } from './prompt';
 export class GitLabAiProvider implements LlmProvider {
   private readonly gatewayUrl: string;
   private readonly pat: string;
+  private readonly debug: DebugFlags;
+  private readonly hasProxy: boolean;
 
   constructor(config: Config) {
     this.gatewayUrl = `${config.gitlabUrl.replace(/\/+$/, '')}/api/v4/chat/completions`;
     this.pat = config.pat;
+    this.debug = config.debug;
+    this.hasProxy = !!config.proxyUrl;
+  }
+
+  private debugLog(context: string, err: unknown): void {
+    const categories = classifyError(err, this.hasProxy);
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = (err as any)?.code ?? '';
+    const stack = err instanceof Error ? err.stack ?? '' : '';
+    const cause = (err as any)?.cause;
+
+    for (const cat of categories) {
+      if (this.debug[cat]) {
+        console.log(`[${cat}] [rest] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+        if (stack) console.log(`[${cat}] [rest] stack: ${stack}`);
+        if (cause) console.log(`[${cat}] [rest] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
+    if (categories.length === 0 && this.debug.serverErrors) {
+      console.log(`[serverErrors] [rest] ${context}: ${msg}`);
+    }
   }
 
   async *chatStream(
@@ -22,15 +45,27 @@ export class GitLabAiProvider implements LlmProvider {
     // including tool definitions and prior tool results.
     const content = flattenMessages(messages);
 
-    const resp = await fetch(this.gatewayUrl, {
-      method: 'POST',
-      headers: bearerHeaders(this.pat),
-      body: JSON.stringify({ content }),
-    });
+    let resp: Response;
+    try {
+      resp = await fetch(this.gatewayUrl, {
+        method: 'POST',
+        headers: bearerHeaders(this.pat),
+        body: JSON.stringify({ content }),
+      });
+    } catch (err) {
+      this.debugLog(`POST ${this.gatewayUrl}`, err);
+      throw err;
+    }
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
-      throw new Error(`GitLab Duo Chat returned HTTP ${resp.status} — ${body}`);
+      const error = new Error(`GitLab Duo Chat returned HTTP ${resp.status} — ${body}`);
+      if (this.debug.apiErrors) {
+        console.log(`[apiErrors] [rest] POST ${this.gatewayUrl}: HTTP ${resp.status}`);
+        console.log(`[apiErrors] [rest] response body: ${body.slice(0, 2000)}`);
+        console.log(`[apiErrors] [rest] response headers: ${JSON.stringify(Object.fromEntries(resp.headers.entries()))}`);
+      }
+      throw error;
     }
 
     const contentType = resp.headers.get('content-type') ?? '';
