@@ -1,5 +1,5 @@
 import * as http from 'http';
-import { configFromEnv, classifyError } from './config';
+import { configFromEnv, classifyError, formatCauseChain, unwrapCauseChain } from './config';
 import { GitLabAiProvider } from './gitlabProvider';
 import { GraphQLProvider } from './graphqlProvider';
 import { buildInitialHistory } from './prompt';
@@ -88,13 +88,13 @@ function debugLogError(context: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   const code = (err as any)?.code ?? '';
   const stack = err instanceof Error ? err.stack ?? '' : '';
-  const cause = (err as any)?.cause;
+  const causeChain = formatCauseChain(err);
 
   for (const cat of categories) {
     if (config.debug[cat]) {
       serverLog('DEBUG', `[${cat}] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
       if (stack) serverLog('DEBUG', `[${cat}] stack: ${stack}`);
-      if (cause) serverLog('DEBUG', `[${cat}] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+      serverLog('DEBUG', `[${cat}] cause chain:\n${causeChain}`);
     }
   }
 
@@ -102,6 +102,7 @@ function debugLogError(context: string, err: unknown): void {
   if (categories.length === 0 && config.debug.serverErrors) {
     serverLog('DEBUG', `[serverErrors] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
     if (stack) serverLog('DEBUG', `[serverErrors] stack: ${stack}`);
+    serverLog('DEBUG', `[serverErrors] cause chain:\n${causeChain}`);
   }
 }
 
@@ -331,9 +332,18 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== 'Chat request aborted') {
+          // Log the full cause chain so the real error is visible in
+          // diagnostics (e.g. "fetch failed" → ECONNREFUSED / cert error).
+          const fullCause = unwrapCauseChain(e);
           serverLog('ERROR', `ReactLoop error: ${msg}`, e instanceof Error ? e.stack : '');
+          if (fullCause !== msg) {
+            serverLog('ERROR', `ReactLoop root cause: ${fullCause}`);
+          }
           debugLogError('ReactLoop', e);
-          const safeMsg = msg.replace(/\n/g, ' ');
+          // Send the full cause chain to the user so they see actionable
+          // details instead of just "fetch failed".
+          const userMsg = fullCause !== msg ? `${msg} — root cause: ${fullCause}` : msg;
+          const safeMsg = userMsg.replace(/\n/g, ' ');
           safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
         } else {
           serverLog('INFO', 'Chat request aborted by client');

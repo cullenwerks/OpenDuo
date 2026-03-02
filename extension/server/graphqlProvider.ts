@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { privateTokenHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, unwrapCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { flattenMessages } from './prompt';
@@ -36,17 +36,18 @@ export class GraphQLProvider implements LlmProvider {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] ${TAG} ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
         if (stack) console.log(`[${cat}] ${TAG} stack: ${stack}`);
-        if (cause) console.log(`[${cat}] ${TAG} cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+        console.log(`[${cat}] ${TAG} cause chain:\n${causeChain}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] ${TAG} ${context}: ${msg}`);
+      console.log(`[serverErrors] ${TAG} cause chain:\n${causeChain}`);
     }
   }
 
@@ -95,13 +96,23 @@ export class GraphQLProvider implements LlmProvider {
       resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
     } catch (err) {
       this.debugLog(`GET ${url}`, err);
-      throw err;
+      const rootCause = unwrapCauseChain(err);
+      throw new Error(
+        `Cannot reach GitLab at ${this.baseUrl} — ${rootCause}. ` +
+        `Check your network connection, GitLab URL, and SSL/proxy settings.`,
+      );
     }
     if (!resp.ok) {
       if (this.debug.apiErrors) {
         const body = await resp.text().catch(() => '');
         console.log(`[apiErrors] ${TAG} GET ${url}: HTTP ${resp.status}`);
         console.log(`[apiErrors] ${TAG} response body: ${body.slice(0, 2000)}`);
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(
+          `GitLab authentication failed (HTTP ${resp.status}). ` +
+          `Check that your Personal Access Token is valid and has the required scopes (api).`,
+        );
       }
       throw new Error(`GitLab user endpoint error: HTTP ${resp.status}`);
     }
@@ -242,7 +253,8 @@ export class GraphQLProvider implements LlmProvider {
       });
     } catch (err) {
       this.debugLog(`POST ${url}`, err);
-      throw err;
+      const rootCause = unwrapCauseChain(err);
+      throw new Error(`aiAction request failed — ${rootCause}`);
     }
 
     log('aiAction HTTP status:', resp.status);

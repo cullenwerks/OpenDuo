@@ -1,5 +1,5 @@
 import { bearerHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, unwrapCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse, ToolDefinition } from './types';
 import { flattenMessages } from './prompt';
@@ -22,17 +22,18 @@ export class GitLabAiProvider implements LlmProvider {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] [rest] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
         if (stack) console.log(`[${cat}] [rest] stack: ${stack}`);
-        if (cause) console.log(`[${cat}] [rest] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
+        console.log(`[${cat}] [rest] cause chain:\n${causeChain}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] [rest] ${context}: ${msg}`);
+      console.log(`[serverErrors] [rest] cause chain:\n${causeChain}`);
     }
   }
 
@@ -54,18 +55,34 @@ export class GitLabAiProvider implements LlmProvider {
       });
     } catch (err) {
       this.debugLog(`POST ${this.gatewayUrl}`, err);
-      throw err;
+      const rootCause = unwrapCauseChain(err);
+      throw new Error(
+        `Cannot reach GitLab at ${this.gatewayUrl} — ${rootCause}. ` +
+        `Check your network connection, GitLab URL, and SSL/proxy settings.`,
+      );
     }
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
-      const error = new Error(`GitLab Duo Chat returned HTTP ${resp.status} — ${body}`);
       if (this.debug.apiErrors) {
         console.log(`[apiErrors] [rest] POST ${this.gatewayUrl}: HTTP ${resp.status}`);
         console.log(`[apiErrors] [rest] response body: ${body.slice(0, 2000)}`);
         console.log(`[apiErrors] [rest] response headers: ${JSON.stringify(Object.fromEntries(resp.headers.entries()))}`);
       }
-      throw error;
+      if (resp.status === 404) {
+        throw new Error(
+          `GitLab Duo Chat endpoint not found (HTTP 404). ` +
+          `The /api/v4/chat/completions endpoint may not be available on your GitLab version. ` +
+          `Try switching the chat provider to "graphql" in your OpenDuo settings.`
+        );
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(
+          `GitLab authentication failed (HTTP ${resp.status}). ` +
+          `Check that your Personal Access Token is valid and has the required scopes (api).`
+        );
+      }
+      throw new Error(`GitLab Duo Chat returned HTTP ${resp.status} — ${body}`);
     }
 
     const contentType = resp.headers.get('content-type') ?? '';

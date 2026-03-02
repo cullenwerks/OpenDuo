@@ -38,12 +38,59 @@ const SSL_PATTERNS = [
 ];
 const NETWORK_PATTERNS = [
   'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH',
-  'ENETUNREACH', 'EAI_AGAIN', 'connect', 'timeout', 'DNS',
+  'ENETUNREACH', 'EAI_AGAIN', 'connect', 'timeout', 'DNS', 'fetch failed',
 ];
 const PROXY_PATTERNS = ['proxy', 'ECONNREFUSED', 'tunnel'];
 
+/**
+ * Walk the `.cause` chain of an error and collect all messages/codes into a
+ * single string so pattern-matching works even when the real reason is buried
+ * several levels deep (common with Node's undici-backed `fetch`).
+ */
+export function unwrapCauseChain(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      parts.push(current.message);
+      if ((current as any).code) parts.push((current as any).code);
+    } else {
+      parts.push(String(current));
+    }
+    current = (current as any)?.cause;
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Format the full cause chain as a human-readable multi-line string for
+ * diagnostic output.  Each level is indented so it's easy to follow the chain.
+ */
+export function formatCauseChain(err: unknown): string {
+  const lines: string[] = [];
+  let current: unknown = err;
+  let depth = 0;
+  const seen = new Set<unknown>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const indent = '  '.repeat(depth);
+    if (current instanceof Error) {
+      const code = (current as any).code ? ` (code=${(current as any).code})` : '';
+      lines.push(`${indent}${current.constructor.name}: ${current.message}${code}`);
+    } else {
+      lines.push(`${indent}${String(current)}`);
+    }
+    current = (current as any)?.cause;
+    depth++;
+  }
+  return lines.join('\n');
+}
+
 export function classifyError(err: unknown, proxyConfigured: boolean): ErrorCategory[] {
-  const msg = err instanceof Error ? `${err.message} ${(err as any).code ?? ''}` : String(err);
+  // Inspect the entire cause chain, not just the top-level message
+  const msg = unwrapCauseChain(err);
   const upper = msg.toUpperCase();
   const categories: ErrorCategory[] = [];
   if (SSL_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('sslErrors');
