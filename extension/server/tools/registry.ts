@@ -20,6 +20,7 @@ import { wikiTools } from './wiki';
 import { workspaceTools } from './workspace';
 import { editorContextTools } from './editorContext';
 import { diagnosticsTools } from './diagnostics';
+import { terminalTools } from './terminal';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -60,6 +61,11 @@ export class ToolRegistry {
       ...editorContextTools(),
       // Diagnostics tools (IPC to extension host)
       ...diagnosticsTools(),
+      // Terminal tools (run shell commands with user approval)
+      ...terminalTools(
+        config.workspaceFolders,
+        () => this._activeFolder,
+      ),
     ];
 
     for (const tool of allTools) {

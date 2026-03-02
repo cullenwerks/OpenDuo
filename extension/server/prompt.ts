@@ -37,7 +37,10 @@ export function buildSystemPrompt(
     parts.push('');
     parts.push('WORKSPACE CONTEXT:');
     parts.push(`The user has workspace folder "${activeFolder.name}" open at: ${activeFolder.path}`);
-    parts.push('Use the workspace tools (read_workspace_file, list_workspace_files, search_workspace, get_workspace_info, write_workspace_file, delete_workspace_file) to work with local files.');
+    parts.push('Use workspace tools (read_workspace_file, list_workspace_files, search_workspace, get_workspace_info, write_workspace_file, delete_workspace_file, edit_workspace_file) to work with local files.');
+    parts.push('Use get_editor_context to see what file the user has open and what text they have selected.');
+    parts.push('Use get_diagnostics to see errors and warnings from TypeScript, ESLint, and other tools.');
+    parts.push('Use run_command to execute shell commands (build, test, lint, git). The user must approve each command.');
     parts.push('Use repository tools (get_file, list_files, search_code) for remote GitLab repository files.');
     parts.push('When the user asks about their code or files, prefer workspace tools first.');
   }
