@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { privateTokenHeaders } from './auth';
+import { bearerHeaders } from './auth';
 import { classifyError, formatCauseChain, unwrapCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
@@ -93,7 +93,7 @@ export class GraphQLProvider implements LlmProvider {
     const url = `${this.baseUrl}/api/v4/user`;
     let resp: Response;
     try {
-      resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
+      resp = await fetch(url, { headers: bearerHeaders(this.pat) });
     } catch (err) {
       this.debugLog(`GET ${url}`, err);
       const rootCause = unwrapCauseChain(err);
@@ -140,7 +140,7 @@ export class GraphQLProvider implements LlmProvider {
     try {
       const encoded = encodeURIComponent(projectPath);
       const url = `${this.baseUrl}/api/v4/projects/${encoded}`;
-      const resp = await fetch(url, { headers: privateTokenHeaders(this.pat) });
+      const resp = await fetch(url, { headers: bearerHeaders(this.pat) });
       if (!resp.ok) {
         log('project lookup failed:', resp.status);
         if (this.debug.apiErrors) {
@@ -240,22 +240,20 @@ export class GraphQLProvider implements LlmProvider {
     // checks are performed against the resource.
     const resourceId = this.projectContext?.projectGid ?? null;
 
-    const chatInput: Record<string, unknown> = { content, resourceId };
-    const input: Record<string, unknown> = {
-      chat: chatInput,
-      clientSubscriptionId: clientSubId,
-      // Required since GitLab 17.3+ — identifies the client platform so the
-      // server can route the request through the correct entitlement path.
-      platformOrigin: 'vs_code_extension',
+    // Match exactly what the official extension sends — only resourceId
+    // inside chat, and platformOrigin at the input level.  The official
+    // extension NEVER sends namespaceId, rootNamespaceId, or projectId.
+    // Those extra fields trigger additional entitlement checks that can
+    // cause G3001 "requires a different Duo subscription" on self-managed EE.
+    const variables = {
+      input: {
+        chat: { content, resourceId },
+        clientSubscriptionId: clientSubId,
+        // Required since GitLab 17.3+ — identifies the client platform so
+        // the server routes through the correct entitlement path.
+        platformOrigin: 'vs_code_extension',
+      },
     };
-
-    if (this.projectContext) {
-      chatInput.namespaceId = this.projectContext.namespaceGid;
-      input.rootNamespaceId = this.projectContext.namespaceGid;
-      input.projectId = this.projectContext.projectGid;
-    }
-
-    const variables = { input };
     const url = `${this.baseUrl}/api/graphql`;
 
     log('aiAction POST to', url);
@@ -263,7 +261,7 @@ export class GraphQLProvider implements LlmProvider {
     try {
       resp = await fetch(url, {
         method: 'POST',
-        headers: privateTokenHeaders(this.pat),
+        headers: bearerHeaders(this.pat),
         body: JSON.stringify({ query: mutation, variables }),
       });
     } catch (err) {
@@ -329,7 +327,7 @@ function connectWs(wsUrl: string, pat: string, baseUrl: string): Promise<WebSock
 
     const ws = new WebSocket(wsUrl, {
       headers: {
-        'PRIVATE-TOKEN': pat,
+        Authorization: `Bearer ${pat}`,
         Origin: baseUrl,
       },
     });
