@@ -34,17 +34,58 @@ export type ErrorCategory = keyof DebugFlags;
 
 const SSL_PATTERNS = [
   'certificate', 'CERT_', 'SSL', 'TLS', 'self signed', 'self-signed',
-  'UNABLE_TO_VERIFY', 'ERR_TLS', 'DEPTH_ZERO',
+  'UNABLE_TO_VERIFY', 'ERR_TLS', 'DEPTH_ZERO', 'UNABLE_TO_GET_ISSUER',
 ];
 const NETWORK_PATTERNS = [
   'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH',
-  'ENETUNREACH', 'EAI_AGAIN', 'connect', 'timeout', 'DNS',
+  'ENETUNREACH', 'EAI_AGAIN', 'connect', 'timeout', 'DNS', 'fetch failed',
 ];
 const PROXY_PATTERNS = ['proxy', 'ECONNREFUSED', 'tunnel'];
 
+/**
+ * Collect the full text of an error including its `.cause` chain.
+ * Node.js's undici wraps the real error (SSL, DNS, etc.) inside
+ * `TypeError: fetch failed` with the actual error in `.cause`.
+ * We must walk the chain to find the real error for classification.
+ */
+function collectErrorText(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    if (current instanceof Error) {
+      parts.push(`${current.message} ${(current as any).code ?? ''}`);
+      current = (current as any).cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Format the full cause chain of an error for diagnostic output.
+ * Returns a human-readable string showing each nested cause.
+ */
+export function formatCauseChain(err: unknown): string {
+  const lines: string[] = [];
+  let current: unknown = err;
+  let depth = 0;
+  while (current instanceof Error && depth < 5) {
+    const code = (current as any).code ? ` [${(current as any).code}]` : '';
+    lines.push(`${'  '.repeat(depth)}${current.constructor.name}: ${current.message}${code}`);
+    current = (current as any).cause;
+    depth++;
+  }
+  if (current && !(current instanceof Error)) {
+    lines.push(`${'  '.repeat(depth)}${String(current)}`);
+  }
+  return lines.join('\n');
+}
+
 export function classifyError(err: unknown, proxyConfigured: boolean): ErrorCategory[] {
-  const msg = err instanceof Error ? `${err.message} ${(err as any).code ?? ''}` : String(err);
-  const upper = msg.toUpperCase();
+  const text = collectErrorText(err);
+  const upper = text.toUpperCase();
   const categories: ErrorCategory[] = [];
   if (SSL_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('sslErrors');
   if (NETWORK_PATTERNS.some(p => upper.includes(p.toUpperCase()))) categories.push('networkErrors');

@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { privateTokenHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
 import { flattenMessages } from './prompt';
@@ -36,17 +36,18 @@ export class GraphQLProvider implements LlmProvider {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] ${TAG} ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+        if (causeChain) console.log(`[${cat}] ${TAG} cause chain:\n${causeChain}`);
         if (stack) console.log(`[${cat}] ${TAG} stack: ${stack}`);
-        if (cause) console.log(`[${cat}] ${TAG} cause: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] ${TAG} ${context}: ${msg}`);
+      if (causeChain) console.log(`[serverErrors] ${TAG} cause chain:\n${causeChain}`);
     }
   }
 

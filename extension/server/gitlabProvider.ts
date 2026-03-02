@@ -1,5 +1,5 @@
 import { bearerHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse, ToolDefinition } from './types';
 import { flattenMessages } from './prompt';
@@ -22,17 +22,18 @@ export class GitLabAiProvider implements LlmProvider {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] [rest] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+        if (causeChain) console.log(`[${cat}] [rest] cause chain:\n${causeChain}`);
         if (stack) console.log(`[${cat}] [rest] stack: ${stack}`);
-        if (cause) console.log(`[${cat}] [rest] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] [rest] ${context}: ${msg}`);
+      if (causeChain) console.log(`[serverErrors] [rest] cause chain:\n${causeChain}`);
     }
   }
 

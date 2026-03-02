@@ -1,5 +1,5 @@
 import { privateTokenHeaders } from './auth';
-import { classifyError, type Config, type DebugFlags } from './config';
+import { classifyError, formatCauseChain, type Config, type DebugFlags } from './config';
 
 export class GitLabClient {
   private readonly baseUrl: string;
@@ -23,17 +23,18 @@ export class GitLabClient {
     const msg = err instanceof Error ? err.message : String(err);
     const code = (err as any)?.code ?? '';
     const stack = err instanceof Error ? err.stack ?? '' : '';
-    const cause = (err as any)?.cause;
+    const causeChain = formatCauseChain(err);
 
     for (const cat of categories) {
       if (this.debug[cat]) {
         console.log(`[${cat}] [gitlabClient] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+        if (causeChain) console.log(`[${cat}] [gitlabClient] cause chain:\n${causeChain}`);
         if (stack) console.log(`[${cat}] [gitlabClient] stack: ${stack}`);
-        if (cause) console.log(`[${cat}] [gitlabClient] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     }
     if (categories.length === 0 && this.debug.serverErrors) {
       console.log(`[serverErrors] [gitlabClient] ${context}: ${msg}`);
+      if (causeChain) console.log(`[serverErrors] [gitlabClient] cause chain:\n${causeChain}`);
     }
   }
 

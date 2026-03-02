@@ -1,5 +1,5 @@
 import * as http from 'http';
-import { configFromEnv, classifyError } from './config';
+import { configFromEnv, classifyError, formatCauseChain } from './config';
 import { GitLabAiProvider } from './gitlabProvider';
 import { GraphQLProvider } from './graphqlProvider';
 import { buildInitialHistory } from './prompt';
@@ -88,19 +88,20 @@ function debugLogError(context: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   const code = (err as any)?.code ?? '';
   const stack = err instanceof Error ? err.stack ?? '' : '';
-  const cause = (err as any)?.cause;
+  const causeChain = formatCauseChain(err);
 
   for (const cat of categories) {
     if (config.debug[cat]) {
       serverLog('DEBUG', `[${cat}] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+      if (causeChain) serverLog('DEBUG', `[${cat}] cause chain:\n${causeChain}`);
       if (stack) serverLog('DEBUG', `[${cat}] stack: ${stack}`);
-      if (cause) serverLog('DEBUG', `[${cat}] cause: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
   }
 
   // If no category matched but serverErrors is enabled, log as a generic server error
   if (categories.length === 0 && config.debug.serverErrors) {
     serverLog('DEBUG', `[serverErrors] ${context}: ${msg}${code ? ` (code=${code})` : ''}`);
+    if (causeChain) serverLog('DEBUG', `[serverErrors] cause chain:\n${causeChain}`);
     if (stack) serverLog('DEBUG', `[serverErrors] stack: ${stack}`);
   }
 }
