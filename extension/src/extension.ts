@@ -3,7 +3,7 @@ import * as path from 'path';
 import { PatManager } from './patManager';
 import { ServerManager } from './server';
 import { getOutputChannel, log, logDebug, logError, logInfo, logWarn, showError } from './logger';
-import { ChatPanel } from './chatPanel';
+import { ChatViewProvider } from './chatView';
 
 let serverManager: ServerManager | null = null;
 /** Tracks the env the running server was started with so we can detect changes. */
@@ -16,6 +16,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logDebug(`Extension version: ${context.extension.packageJSON.version ?? 'unknown'}`);
 
   const patManager = new PatManager(context.secrets);
+  const chatViewProvider = new ChatViewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'openduo.chatView',
+      chatViewProvider,
+      { webviewOptions: { retainContextWhenHidden: true } }
+    )
+  );
   const serverScript = path.join(context.extensionPath, 'dist', 'server.js');
   logDebug(`Server script path: ${serverScript}`);
 
@@ -123,7 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       logInfo(`Server running at ${serverManager.serverUrl()}`);
-      ChatPanel.createOrShow(context.extensionUri, serverManager.serverUrl());
+      await vscode.commands.executeCommand('workbench.view.extension.openduo');
     })
   );
 

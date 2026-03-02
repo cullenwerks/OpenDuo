@@ -14,6 +14,22 @@ export interface PendingConfirmation {
   command: string;
 }
 
+export interface ToolCallEntry {
+  id: string;
+  name: string;
+  params: string;
+  startTime: number;
+  endTime?: number;
+  status: 'running' | 'done' | 'error';
+  resultSummary?: string;
+}
+
+export function parseToolCallToken(data: string): { name: string; params: string } | null {
+  const match = data.match(/^\[Calling ([\w.]+)(?:\s+([^\]]*?))?\.\.\.\]$/);
+  if (!match) return null;
+  return { name: match[1], params: match[2]?.trim() ?? '' };
+}
+
 export function createMessage(role: MessageRole, content: string): ChatMessage {
   return { id: crypto.randomUUID(), role, content };
 }
@@ -27,6 +43,7 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
   const [isLoading, setIsLoading] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
 
   const cancelRequest = useCallback(() => {
     if (abortRef.current) {
@@ -137,12 +154,24 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
           if (confirmMatch) {
             setPendingConfirmation({ id: confirmMatch[1], command: confirmMatch[2] });
           } else {
-            // Normal token — append to message
-            setMessages(prev => prev.map(m =>
-              m.id === assistantMsg.id
-                ? appendToken(m, data)
-                : m
-            ));
+            const toolCallMatch = parseToolCallToken(data);
+            if (toolCallMatch) {
+              const entry: ToolCallEntry = {
+                id: crypto.randomUUID(),
+                name: toolCallMatch.name,
+                params: toolCallMatch.params,
+                startTime: Date.now(),
+                status: 'running',
+              };
+              setToolCalls(prev => [...prev, entry]);
+            } else {
+              // Normal token — append to message
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsg.id
+                  ? appendToken(m, data)
+                  : m
+              ));
+            }
           }
         }
       }
@@ -163,6 +192,9 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
         m.id === assistantMsg.id ? { ...m, isStreaming: false } : m
       ));
       setIsLoading(false);
+      setToolCalls(prev => prev.map(tc =>
+        tc.status === 'running' ? { ...tc, status: 'done', endTime: Date.now() } : tc
+      ));
     }
   }, [serverUrl, cancelRequest]);
 
@@ -182,6 +214,7 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
   const resetChat = useCallback(async () => {
     cancelRequest();
     setMessages([]);
+    setToolCalls([]);
     setIsLoading(false);
     try {
       await fetch(`${serverUrl}/chat/reset`, { method: 'POST' });
@@ -190,5 +223,5 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
     }
   }, [serverUrl, cancelRequest]);
 
-  return { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand };
+  return { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand, toolCalls };
 }

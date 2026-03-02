@@ -82,6 +82,184 @@
       padding-left: 0.5rem;
       margin: 0.25rem 0;
     }
+
+    /* ── Streaming cursor ──────────────────────────────────────── */
+    @keyframes cursor-blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+    .streaming-cursor {
+      width: 2px;
+      height: 1.1em;
+      background: var(--vscode-editor-foreground);
+      display: inline-block;
+      margin-left: 1px;
+      vertical-align: text-bottom;
+      animation: cursor-blink 0.8s step-end infinite;
+      transition: opacity 0.4s ease, width 0.3s ease;
+    }
+    .streaming-cursor.done {
+      opacity: 0;
+      width: 0;
+    }
+
+    /* ── Message enter animation ───────────────────────────────── */
+    @keyframes fade-slide-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .message-enter { animation: fade-slide-in 200ms ease-out forwards; }
+
+    /* ── CSS thinking dots (replaces JS interval) ──────────────── */
+    @keyframes thinking-dot {
+      0%, 80%, 100% { transform: scale(1);   opacity: 0.4; }
+      40%            { transform: scale(1.4); opacity: 1;   }
+    }
+    .thinking-dots { display: flex; gap: 4px; align-items: center; padding: 2px 0; }
+    .thinking-dots span {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+    }
+    .thinking-dots .dot-1 { animation: thinking-dot 1.2s ease-in-out infinite 0.0s; }
+    .thinking-dots .dot-2 { animation: thinking-dot 1.2s ease-in-out infinite 0.2s; }
+    .thinking-dots .dot-3 { animation: thinking-dot 1.2s ease-in-out infinite 0.4s; }
+
+    /* ── Code block chrome ─────────────────────────────────────── */
+    .code-block {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 0.5em 0;
+    }
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 10px;
+      background: var(--vscode-editorGroupHeader-tabsBackground);
+      font-size: 0.75rem;
+    }
+    .code-lang { opacity: 0.6; }
+    .code-actions button {
+      background: transparent;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      color: var(--vscode-editor-foreground);
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      cursor: pointer;
+      margin-left: 4px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .code-actions button:active { transform: scale(0.96); }
+
+    /* Override inline code inside code-blocks to strip extra border */
+    .code-block pre code {
+      background: none !important;
+      border: none !important;
+      padding: 0 !important;
+      border-radius: 0 !important;
+    }
+
+    /* ── Diff line coloring ────────────────────────────────────── */
+    .diff-add    { background: rgba(70, 200, 80, 0.12); display: block; }
+    .diff-remove { background: rgba(240, 60, 60, 0.12); display: block; }
+
+    /* ── Tool call rows ────────────────────────────────────────── */
+    .tool-call-row {
+      position: relative;
+      border-left: 3px solid var(--vscode-button-background);
+      border-radius: 6px;
+      background: var(--vscode-editorWidget-background);
+      margin: 4px 12px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      overflow: hidden;
+    }
+    .tool-call-row.error { border-left-color: var(--vscode-errorForeground); }
+    .tool-call-row.done  { opacity: 0.7; }
+    .tool-call-row-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tool-call-name   { font-weight: 600; }
+    .tool-call-params { opacity: 0.6; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tool-call-elapsed { opacity: 0.5; font-size: 0.7rem; margin-left: auto; }
+    .tool-call-chevron { opacity: 0.6; transition: transform 0.15s; }
+    .tool-call-chevron.open { transform: rotate(90deg); }
+    .tool-call-body {
+      margin-top: 6px;
+      font-size: 0.75rem;
+      opacity: 0.7;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    @keyframes progress-fill {
+      from { width: 0%; }
+      to   { width: 100%; }
+    }
+    .tool-call-progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 2px;
+      background: var(--vscode-button-background);
+      animation: progress-fill 8s linear forwards;
+      opacity: 0.5;
+    }
+    .tool-call-progress.done { opacity: 0; transition: opacity 0.4s; }
+
+    /* ── Pulsing connection dot ────────────────────────────────── */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .status-dot.connected    { background: #4ec9b0; animation: pulse-dot 2s ease-in-out infinite; }
+    .status-dot.disconnected { background: #f44747; }
+
+    /* ── Floating input card ───────────────────────────────────── */
+    .input-card {
+      margin: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--vscode-panel-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      background: var(--vscode-input-background);
+      display: flex;
+      align-items: flex-end;
+      padding: 6px 8px;
+      gap: 6px;
+      transition: box-shadow 0.15s;
+    }
+    .input-card:focus-within {
+      box-shadow: 0 0 0 2px var(--vscode-focusBorder), 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    .input-btn {
+      width: 24px; height: 24px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: opacity 0.15s, transform 0.1s;
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
+    .input-btn:active   { transform: scale(0.96); }
+    .input-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── Micro-interaction defaults ────────────────────────────── */
+    button { transition: opacity 0.15s, transform 0.1s; }
+    button:active { transform: scale(0.96); }
   </style>
 </head>
 <body>

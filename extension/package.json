@@ -55,6 +55,24 @@
           "description": "Which GitLab Duo Chat API to use. Use 'rest' for self-managed EE, 'graphql' for GitLab.com."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openduo",
+          "title": "OpenDuo",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "openduo": [
+        {
+          "type": "webview",
+          "id": "openduo.chatView",
+          "name": "OpenDuo Chat"
+        }
+      ]
     }
   },
   "scripts": {
