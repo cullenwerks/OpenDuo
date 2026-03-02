@@ -3,6 +3,7 @@
 
 # Build artifacts
 target/
+extension/bin/
 
 # Node
 extension/node_modules/

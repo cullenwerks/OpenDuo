@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { marked } from 'marked';
 import type { ChatMessage } from '../hooks/useChat';
+import { sanitizeHtml } from '../sanitize';
 
 interface Props { message: ChatMessage; }
 
@@ -31,7 +32,7 @@ function renderMarkdown(text: string): string {
   // so the inserted <div> tags aren't stripped by the html() override.
   html = html.replace(
     /\[Calling (\w[\w.]*)\.\.\.\]/g,
-    (_match, name) => `<div class="tool-call">[Calling ${name}...]</div>`,
+    (_match, name) => `<div class="tool-call">[Calling ${sanitizeHtml(name)}...]</div>`,
   );
   return html;
 }

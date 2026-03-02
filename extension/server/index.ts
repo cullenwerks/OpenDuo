@@ -10,13 +10,74 @@ import { ConfirmationManager } from './confirmations';
 import type { LlmProvider } from './provider';
 import type { ChatMessage } from './types';
 
-const config = configFromEnv();
+// ---------------------------------------------------------------------------
+// Logging helpers — server process writes to stdout; extension pipes to OutputChannel
+// ---------------------------------------------------------------------------
+
+function ts(): string {
+  return new Date().toISOString();
+}
+
+function serverLog(level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG', ...args: unknown[]): void {
+  const prefix = `[${ts()}] [${level}] [openduo-server]`;
+  if (level === 'ERROR') {
+    console.error(prefix, ...args);
+  } else if (level === 'WARN') {
+    console.warn(prefix, ...args);
+  } else {
+    console.log(prefix, ...args);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Config — exit immediately if environment is misconfigured
+// ---------------------------------------------------------------------------
+
+const config = (() => {
+  try {
+    return configFromEnv();
+  } catch (err) {
+    console.error(`[openduo-server] FATAL: Failed to load config: ${(err as Error).message}`);
+    process.exit(1);
+  }
+})()!;
+
+// ---------------------------------------------------------------------------
+// Proxy — configure undici global dispatcher so all fetch() calls use
+// VS Code's http.proxy setting (passed via env) rather than the system proxy.
+// undici ships with Node.js 18+ and backs the built-in global fetch().
+// Setting the global dispatcher affects ALL fetch() calls in this process
+// without needing to modify individual call sites.
+// ---------------------------------------------------------------------------
+
+if (config.proxyUrl) {
+  serverLog('INFO', `Proxy configured: ${config.proxyUrl}`);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { setGlobalDispatcher, ProxyAgent } = require('undici') as typeof import('undici');
+    setGlobalDispatcher(new ProxyAgent({ uri: config.proxyUrl }));
+    serverLog('INFO', 'undici global ProxyAgent installed — all fetch() calls will use VS Code proxy');
+  } catch (err) {
+    serverLog('WARN', `Failed to configure proxy via undici: ${(err as Error).message}`);
+  }
+} else {
+  serverLog('DEBUG', 'No proxy configured');
+}
+
+serverLog('INFO', `GitLab URL: ${config.gitlabUrl}`);
+serverLog('INFO', `Chat provider: ${config.chatProvider}`);
+serverLog('INFO', `Workspace folders: ${config.workspaceFolders.map(f => f.name).join(', ') || '(none)'}`);
+
+// ---------------------------------------------------------------------------
+// Providers and tools
+// ---------------------------------------------------------------------------
+
 let provider: LlmProvider;
 if (config.chatProvider === 'graphql') {
-  console.log('Using GraphQL+ActionCable provider (gitlab.com mode)');
+  serverLog('INFO', 'Using GraphQL+ActionCable provider (gitlab.com mode)');
   provider = new GraphQLProvider(config);
 } else {
-  console.log('Using REST provider (self-managed EE mode)');
+  serverLog('INFO', 'Using REST provider (self-managed EE mode)');
   provider = new GitLabAiProvider(config);
 }
 const tools = new ToolRegistry(config);
@@ -24,7 +85,6 @@ const confirmations = new ConfirmationManager();
 let history: ChatMessage[] = buildInitialHistory(config.gitlabUrl);
 
 // Serialize chat requests so only one runs at a time.
-// Includes a timeout to prevent cascading hangs.
 let chatLock: Promise<void> = Promise.resolve();
 const LOCK_TIMEOUT_MS = 180_000; // 3 minutes
 
@@ -40,11 +100,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
+
 function isAllowedOrigin(origin: string): boolean {
   if (origin.startsWith('vscode-webview://')) return true;
   try {
     const url = new URL(origin);
-    // Strict hostname check — prevents bypass via e.g. "localhost.evil.com"
     return url.hostname === '127.0.0.1' || url.hostname === 'localhost';
   } catch {
     return false;
@@ -52,9 +115,6 @@ function isAllowedOrigin(origin: string): boolean {
 }
 
 function corsHeaders(req?: http.IncomingMessage): Record<string, string> {
-  // Only allow requests from VS Code webview or localhost origins.
-  // A wildcard '*' would let any website running in the user's browser
-  // interact with this server and exfiltrate GitLab data via the PAT.
   const origin = req?.headers?.origin ?? '';
   return {
     'access-control-allow-origin': isAllowedOrigin(origin) ? origin : '',
@@ -64,7 +124,7 @@ function corsHeaders(req?: http.IncomingMessage): Record<string, string> {
   };
 }
 
-const MAX_BODY_BYTES = 64 * 1024; // 64 KiB — more than enough for chat messages
+const MAX_BODY_BYTES = 64 * 1024; // 64 KiB
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -84,49 +144,47 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-/**
- * Safely write to an HTTP response, catching errors if the client
- * disconnected mid-stream.
- */
 function safeWrite(res: http.ServerResponse, data: string): boolean {
   try {
     if (!res.writableEnded && !res.destroyed) {
       return res.write(data);
     }
   } catch (e) {
-    console.warn('[server] Write failed (client disconnected?):', (e as Error).message);
+    serverLog('WARN', `Write failed (client disconnected?): ${(e as Error).message}`);
   }
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP server
+// ---------------------------------------------------------------------------
+
 const server = http.createServer(async (req, res) => {
   const cors = corsHeaders(req);
+  const method = req.method ?? 'GET';
+  const url = req.url ?? '/';
 
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
+  serverLog('DEBUG', `${method} ${url} — origin=${req.headers.origin ?? ''}`);
+
+  if (method === 'OPTIONS') {
     res.writeHead(204, cors);
     res.end();
     return;
   }
 
-  const url = req.url ?? '/';
-
-  // GET /health
-  if (req.method === 'GET' && url === '/health') {
+  if (method === 'GET' && url === '/health') {
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'openduo-server' }));
     return;
   }
 
-  // GET /tools
-  if (req.method === 'GET' && url === '/tools') {
+  if (method === 'GET' && url === '/tools') {
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ tools: tools.definitions() }));
     return;
   }
 
-  // GET /workspaces — list available workspace folders and active folder
-  if (req.method === 'GET' && url === '/workspaces') {
+  if (method === 'GET' && url === '/workspaces') {
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({
       folders: tools.workspaceFolders.map(f => f.name),
@@ -135,13 +193,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /chat
-  if (req.method === 'POST' && url === '/chat') {
-    const body = await readBody(req);
+  if (method === 'POST' && url === '/chat') {
+    let body: string;
+    try {
+      body = await readBody(req);
+    } catch (e) {
+      serverLog('WARN', `Failed to read /chat body: ${(e as Error).message}`);
+      res.writeHead(400, { ...cors, 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read request body' }));
+      return;
+    }
+
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(body);
     } catch {
+      serverLog('WARN', 'POST /chat — invalid JSON body');
       res.writeHead(400, { ...cors, 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid JSON' }));
       return;
@@ -150,10 +217,12 @@ const server = http.createServer(async (req, res) => {
     const validationError = validateChatRequest(parsed.message);
     const message = parsed.message as string;
 
-    // Switch active workspace folder if specified by the client
     if (typeof parsed.workspaceFolder === 'string' && parsed.workspaceFolder) {
+      serverLog('DEBUG', `Switching workspace folder to: ${parsed.workspaceFolder}`);
       tools.setActiveFolder(parsed.workspaceFolder);
     }
+
+    serverLog('INFO', `POST /chat — message length=${typeof message === 'string' ? message.length : 'n/a'}`);
 
     res.writeHead(200, {
       ...cors,
@@ -163,24 +232,21 @@ const server = http.createServer(async (req, res) => {
     });
 
     if (validationError) {
+      serverLog('WARN', `Chat validation error: ${validationError}`);
       safeWrite(res, `data: [ERROR] ${validationError}\n\n`);
       safeWrite(res, 'data: [DONE]\n\n');
       res.end();
       return;
     }
 
-    // AbortController lets us cancel an in-flight ReactLoop when the
-    // client disconnects (e.g. webview closed mid-stream).
     const abortController = new AbortController();
     req.on('close', () => {
       if (!res.writableEnded) {
-        console.log('[server] Client disconnected, aborting chat request');
+        serverLog('INFO', 'Client disconnected — aborting chat request');
         abortController.abort();
       }
     });
 
-    // Serialize chat requests via promise chain with a timeout so a
-    // hung request doesn't block all subsequent chats.
     const previousLock = chatLock;
     let releaseLock: () => void;
     chatLock = new Promise<void>((resolve) => {
@@ -194,23 +260,21 @@ const server = http.createServer(async (req, res) => {
       const histCopy = [...history];
 
       try {
+        serverLog('DEBUG', 'Starting ReactLoop...');
         await reactLoop.run(
           message,
           histCopy,
           provider,
           tools,
           (token) => {
-            // Newlines in a token would corrupt the SSE frame boundary (\n\n).
-            // Replace literal newlines with the SSE multi-line continuation
-            // format so the client reassembles them correctly.
             const lines = token.split('\n');
             const ssePayload = lines.map(l => `data: ${l}`).join('\n');
             safeWrite(res, `${ssePayload}\n\n`);
           },
           abortController.signal,
         );
+        serverLog('DEBUG', 'ReactLoop completed');
 
-        // Trim history to prevent unbounded growth (keep system prompt + last 50 messages)
         if (histCopy.length > 51) {
           const system = histCopy[0];
           history = [system, ...histCopy.slice(histCopy.length - 50)];
@@ -220,17 +284,16 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== 'Chat request aborted') {
-          console.error(`[react] Error: ${msg}`);
-          // Use [ERROR] prefix so the client can distinguish errors from
-          // regular response text and display them with appropriate styling.
-          // Collapse newlines so the error doesn't split into multiple SSE events.
+          serverLog('ERROR', `ReactLoop error: ${msg}`, e instanceof Error ? e.stack : '');
           const safeMsg = msg.replace(/\n/g, ' ');
           safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
+        } else {
+          serverLog('INFO', 'Chat request aborted by client');
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[server] ${msg}`);
+      serverLog('ERROR', `Chat lock/timeout error: ${msg}`);
       const safeMsg = msg.replace(/\n/g, ' ');
       safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);
     } finally {
@@ -241,17 +304,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /chat/reset — reset conversation history
-  if (req.method === 'POST' && url === '/chat/reset') {
+  if (method === 'POST' && url === '/chat/reset') {
+    serverLog('INFO', 'Chat history reset');
     history = buildInitialHistory(config.gitlabUrl);
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
 
-  // POST /command/confirm — resolve a pending tool confirmation
-  if (req.method === 'POST' && url === '/command/confirm') {
-    const body = await readBody(req);
+  if (method === 'POST' && url === '/command/confirm') {
+    let body: string;
+    try {
+      body = await readBody(req);
+    } catch {
+      res.writeHead(400, { ...cors, 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read request body' }));
+      return;
+    }
+
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(body);
@@ -264,36 +334,53 @@ const server = http.createServer(async (req, res) => {
     const id = parsed.id as string;
     const approved = parsed.approved === true;
     if (!id || typeof id !== 'string') {
+      serverLog('WARN', 'POST /command/confirm — missing confirmation id');
       res.writeHead(400, { ...cors, 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Missing confirmation id' }));
       return;
     }
 
+    serverLog('INFO', `Confirmation ${id}: approved=${approved}`);
     const found = confirmations.resolve(id, approved);
     res.writeHead(200, { ...cors, 'content-type': 'application/json' });
     res.end(JSON.stringify({ status: found ? 'resolved' : 'not_found' }));
     return;
   }
 
-  // 404
+  serverLog('WARN', `404 — ${method} ${url}`);
   res.writeHead(404, { ...cors, 'content-type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
 });
 
+server.on('error', (err) => {
+  serverLog('ERROR', `HTTP server error: ${err.message}`, err.stack ?? '');
+  process.exit(1);
+});
+
 const addr = `127.0.0.1:${config.serverPort}`;
 server.listen(config.serverPort, '127.0.0.1', () => {
-  console.log(`openduo-server listening on ${addr}`);
+  serverLog('INFO', `openduo-server listening on ${addr}`);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('Received shutdown signal, draining connections...');
+  serverLog('INFO', 'Received SIGINT — shutting down gracefully');
   server.close(() => {
-    console.log('openduo-server shut down gracefully');
+    serverLog('INFO', 'openduo-server shut down gracefully');
     process.exit(0);
   });
 });
 
 process.on('SIGTERM', () => {
+  serverLog('INFO', 'Received SIGTERM — shutting down');
   server.close(() => process.exit(0));
+});
+
+process.on('uncaughtException', (err) => {
+  serverLog('ERROR', `Uncaught exception: ${err.message}`, err.stack ?? '');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  serverLog('ERROR', `Unhandled rejection: ${String(reason)}`);
 });
