@@ -19,6 +19,7 @@ import { environmentTools } from './environments';
 import { wikiTools } from './wiki';
 import { workspaceTools } from './workspace';
 import { editorContextTools } from './editorContext';
+import { diagnosticsTools } from './diagnostics';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -57,6 +58,8 @@ export class ToolRegistry {
       ),
       // Editor context tools (IPC to extension host)
       ...editorContextTools(),
+      // Diagnostics tools (IPC to extension host)
+      ...diagnosticsTools(),
     ];
 
     for (const tool of allTools) {

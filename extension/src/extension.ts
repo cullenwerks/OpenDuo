@@ -99,9 +99,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log('OpenDuo activated.');
 }
 
-function handleGetDiagnostics(_params: Record<string, unknown>): Array<Record<string, unknown>> {
-  // Will be implemented in Task 5
-  return [];
+function handleGetDiagnostics(params: Record<string, unknown>): Array<Record<string, unknown>> {
+  const filterPath = params.filePath as string | undefined;
+  const filterSeverity = params.severity as string | undefined;
+
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const allDiagnostics = vscode.languages.getDiagnostics();
+  const results: Array<Record<string, unknown>> = [];
+  const MAX_RESULTS = 100;
+
+  const severityMap: Record<number, string> = {
+    0: 'error',
+    1: 'warning',
+    2: 'info',
+    3: 'hint',
+  };
+
+  for (const [uri, diagnostics] of allDiagnostics) {
+    if (results.length >= MAX_RESULTS) break;
+
+    const absPath = uri.fsPath;
+    const relPath = workspaceRoot
+      ? path.relative(workspaceRoot, absPath).replace(/\\/g, '/')
+      : absPath;
+
+    if (filterPath && relPath !== filterPath) continue;
+
+    for (const d of diagnostics) {
+      if (results.length >= MAX_RESULTS) break;
+
+      const sev = severityMap[d.severity] ?? 'info';
+      if (filterSeverity && sev !== filterSeverity) continue;
+
+      results.push({
+        file: relPath,
+        line: d.range.start.line + 1,
+        column: d.range.start.character,
+        severity: sev,
+        message: d.message,
+        source: d.source ?? '',
+      });
+    }
+  }
+
+  return results;
 }
 
 function handleGetEditorContext(): Record<string, unknown> | null {
