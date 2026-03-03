@@ -21,6 +21,7 @@ import { workspaceTools } from './workspace';
 import { editorContextTools } from './editorContext';
 import { diagnosticsTools } from './diagnostics';
 import { terminalTools } from './terminal';
+import { gitContextTools } from './gitContext';
 
 export class ToolRegistry {
   private tools: Map<string, Tool>;
@@ -63,6 +64,11 @@ export class ToolRegistry {
       ...diagnosticsTools(),
       // Terminal tools (run shell commands with user approval)
       ...terminalTools(
+        config.workspaceFolders,
+        () => this._activeFolder,
+      ),
+      // Git context tool (read-only, no confirmation required)
+      ...gitContextTools(
         config.workspaceFolders,
         () => this._activeFolder,
       ),
