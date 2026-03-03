@@ -174,9 +174,9 @@ export function pipelineTools(client: GitLabClient): Tool[] {
     {
       name: 'get_job_log_errors',
       description:
-        'Get the relevant error/failure section of a CI job log. Strips ANSI codes, ' +
-        'finds lines matching error patterns, returns them with context. Much smaller ' +
-        'than get_job_log — use this for pipeline debugging.',
+        'Preferred tool for pipeline debugging. Returns only the error/failure lines ' +
+        'from a CI job log, with surrounding context, ANSI codes stripped. Use instead ' +
+        'of get_job_log when diagnosing a failed job — output is much smaller.',
       parametersSchema: () => ({
         type: 'object',
         properties: {
