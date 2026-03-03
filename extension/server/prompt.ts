@@ -81,6 +81,19 @@ export function buildSystemPrompt(
     parts.push('7. Synthesize: write a structured diagnosis — which stage failed, the exact error message, and which file/line caused it if identifiable.');
     parts.push('8. Offer actions: ask "Should I retry the pipeline, or create an issue documenting this failure?" — wait for the user to respond before calling any tool.');
     parts.push('9. Execute: based on user response, call retry_pipeline to rerun the pipeline, or create_issue with the diagnosis as the issue title and description.');
+    parts.push('');
+    parts.push('MR CREATION PROTOCOL:');
+    parts.push('When the user asks to create an MR, open a PR, or submit their changes, follow these steps IN ORDER:');
+    parts.push('1. Get local context: call get_git_context to read the current branch, recent commits, and staged diff.');
+    parts.push('2. Identify project: call get_workspace_info to derive the GitLab project. If ambiguous, ask the user.');
+    parts.push('3. Determine target branch: use defaultBranch from get_git_context unless the user specified one.');
+    parts.push('4. Draft title and description: infer from commit messages and staged diff. Title = imperative sentence summarising the change. Description = what changed and why, formatted in Markdown.');
+    parts.push('5. Resolve metadata (call in parallel if needed):');
+    parts.push('   - If the user mentioned labels: call list_labels and match by name.');
+    parts.push('   - If the user mentioned a milestone: call list_milestones and match by title.');
+    parts.push('   - Assignee: call get_current_user to self-assign unless the user specified someone else.');
+    parts.push('6. Create the MR: call create_mr with source_branch, target_branch, title, description, assignee_ids, labels, milestone_id.');
+    parts.push('7. Post a review checklist: call add_mr_comment with a Markdown checklist covering tests, docs, breaking changes, and any unstaged files noted in get_git_context.');
   }
 
   return parts.join('\n');
