@@ -56,16 +56,32 @@ export function mergeRequestTools(client: GitLabClient): Tool[] {
           target_branch: { type: 'string' },
           title: { type: 'string' },
           description: { type: 'string' },
+          assignee_ids: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'List of user IDs to assign',
+          },
+          labels: {
+            type: 'string',
+            description: 'Comma-separated label names',
+          },
+          milestone_id: {
+            type: 'integer',
+            description: 'Milestone ID to attach',
+          },
         },
         required: ['project_id', 'source_branch', 'target_branch', 'title'],
       }),
       async execute(args) {
         const pid = enc(args.project_id as string);
         const body: Record<string, unknown> = {};
-        if (args.source_branch) body.source_branch = args.source_branch;
-        if (args.target_branch) body.target_branch = args.target_branch;
+        body.source_branch = args.source_branch;
+        body.target_branch = args.target_branch;
         if (args.title) body.title = args.title;
         if (args.description) body.description = args.description;
+        if (args.assignee_ids) body.assignee_ids = args.assignee_ids;
+        if (args.labels) body.labels = args.labels;
+        if (args.milestone_id != null) body.milestone_id = args.milestone_id;
         return JSON.stringify(await client.post(`projects/${pid}/merge_requests`, body), null, 2);
       },
     },
@@ -80,6 +96,19 @@ export function mergeRequestTools(client: GitLabClient): Tool[] {
           title: { type: 'string' },
           description: { type: 'string' },
           state_event: { type: 'string', enum: ['close', 'reopen'] },
+          assignee_ids: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: 'List of user IDs to assign',
+          },
+          labels: {
+            type: 'string',
+            description: 'Comma-separated label names',
+          },
+          milestone_id: {
+            type: 'integer',
+            description: 'Milestone ID to attach',
+          },
         },
         required: ['project_id', 'mr_iid'],
       }),
@@ -89,6 +118,9 @@ export function mergeRequestTools(client: GitLabClient): Tool[] {
         if (args.title) body.title = args.title;
         if (args.description) body.description = args.description;
         if (args.state_event) body.state_event = args.state_event;
+        if (args.assignee_ids) body.assignee_ids = args.assignee_ids;
+        if (args.labels) body.labels = args.labels;
+        if (args.milestone_id != null) body.milestone_id = args.milestone_id;
         return JSON.stringify(
           await client.put(`projects/${pid}/merge_requests/${args.mr_iid}`, body),
           null, 2

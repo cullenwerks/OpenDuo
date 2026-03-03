@@ -5,6 +5,46 @@ function enc(s: string): string {
   return encodeURIComponent(s);
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
+const ERROR_RE = /ERROR|FAILED|[Ee]rror:|fatal:|FATAL|AssertionError|Traceback|npm ERR!|exit code [1-9]/;
+
+export function extractLogErrors(rawLog: string, maxLines: number, contextLines: number): string {
+  const clean = rawLog.replace(ANSI_RE, "");
+  const lines = clean.split("\n");
+  const total = lines.length;
+
+  // Find all lines matching error patterns
+  const errorIndexes: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (ERROR_RE.test(lines[i])) errorIndexes.push(i);
+  }
+
+  let selectedLines: string[];
+
+  if (errorIndexes.length === 0) {
+    // Fallback: last max_lines lines
+    selectedLines = lines.slice(Math.max(0, total - maxLines));
+  } else {
+    // Build merged context windows
+    const included = new Set<number>();
+    for (const idx of errorIndexes) {
+      const start = Math.max(0, idx - contextLines);
+      const end = Math.min(total - 1, idx + contextLines);
+      for (let i = start; i <= end; i++) included.add(i);
+    }
+    const sortedIndexes = Array.from(included).sort((a, b) => a - b);
+    selectedLines = sortedIndexes.map(i => lines[i]);
+  }
+
+  // Keep the trailing window — the end of a failed log is most diagnostic
+  if (selectedLines.length > maxLines) {
+    selectedLines = selectedLines.slice(selectedLines.length - maxLines);
+  }
+
+  const header = `[Extracted ${errorIndexes.length} error lines from ${total} total.]`;
+  return [header, ...selectedLines].join("\n");
+}
+
 export function pipelineTools(client: GitLabClient): Tool[] {
   return [
     {
@@ -129,6 +169,30 @@ export function pipelineTools(client: GitLabClient): Tool[] {
       async execute(args) {
         const pid = enc(args.project_id as string);
         return client.getRaw(client.apiUrl(`projects/${pid}/jobs/${args.job_id}/trace`));
+      },
+    },
+    {
+      name: 'get_job_log_errors',
+      description:
+        'Preferred tool for pipeline debugging. Returns only the error/failure lines ' +
+        'from a CI job log, with surrounding context, ANSI codes stripped. Use instead ' +
+        'of get_job_log when diagnosing a failed job — output is much smaller.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          project_id: { type: 'string' },
+          job_id: { type: 'integer' },
+          max_lines: { type: 'integer', default: 150, description: 'Max lines to return' },
+          context_lines: { type: 'integer', default: 5, description: 'Lines of context around each error' },
+        },
+        required: ['project_id', 'job_id'],
+      }),
+      async execute(args) {
+        const pid = enc(args.project_id as string);
+        const maxLines = (args.max_lines as number) ?? 150;
+        const contextLines = (args.context_lines as number) ?? 5;
+        const raw = await client.getRaw(client.apiUrl(`projects/${pid}/jobs/${args.job_id}/trace`));
+        return extractLogErrors(raw, maxLines, contextLines);
       },
     },
   ];
