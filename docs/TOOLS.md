@@ -165,6 +165,13 @@ The ReAct agent can call any of these tools during a conversation. Tools are org
 |---|---|---|---|
 | `list_groups` | List accessible groups | — | `search`, `per_page` |
 | `get_group` | Get group details + members | `group_id` | — |
+| `list_group_projects` | List projects in a group | `group_id` | `per_page` |
+| `list_group_issues` | List issues across all projects in a group | `group_id` | `state`, `per_page` |
+| `list_group_merge_requests` | List MRs across all projects in a group | `group_id` | `state`, `per_page` |
+| `list_group_members` | List members of a group | `group_id` | — |
+| `search_code_group` | Search code across all projects in a group | `group_id`, `search` | `per_page` |
+| `list_group_mr_changes` | List MRs filtered by touched file paths | `group_id` | `path_pattern`, `state`, `per_page` |
+| `get_group_workload` | Summarize open issues per member | `group_id` | — |
 
 ---
 

@@ -94,6 +94,13 @@ export function buildSystemPrompt(
     parts.push('   - Assignee: call get_current_user to self-assign unless the user specified someone else.');
     parts.push('6. Create the MR: call create_mr with source_branch, target_branch, title, description, assignee_ids, labels, milestone_id.');
     parts.push('7. Post a review checklist: call add_mr_comment with a Markdown checklist covering tests, docs, breaking changes, and any unstaged files noted in get_git_context.');
+    parts.push('');
+    parts.push('CROSS-PROJECT WORKFLOWS:');
+    parts.push('Use group-level tools for queries that span multiple projects:');
+    parts.push('- search_code_group: find code or libraries across all repos in a group (e.g. "find all repos using lodash")');
+    parts.push('- list_group_mr_changes: find open MRs touching specific paths (e.g. "auth/", ".env", "Dockerfile")');
+    parts.push('- get_group_workload: summarize open issues per member to identify bottlenecks');
+    parts.push('For bulk actions (e.g. create an issue in every affected repo), call search_code_group first to identify matching projects, then call create_issue once per project_id from the results.');
   }
 
   return parts.join('\n');
