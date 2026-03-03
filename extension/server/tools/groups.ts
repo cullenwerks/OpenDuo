@@ -181,5 +181,27 @@ export function groupTools(client: GitLabClient): Tool[] {
         return JSON.stringify(await client.get(`groups/${gid}/members`), null, 2);
       },
     },
+    {
+      name: 'search_code_group',
+      description: 'Search code (file contents) across all projects in a group. Use this to find which repos use a specific library, function, or pattern before bulk-creating issues.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'Group ID or URL-encoded path' },
+          search: { type: 'string', description: 'Search query (substring or keyword)' },
+          per_page: { type: 'integer', default: 20 },
+        },
+        required: ['group_id', 'search'],
+      }),
+      async execute(args) {
+        const gid = enc(args.group_id as string);
+        const q = encodeURIComponent(args.search as string);
+        const perPage = (args.per_page as number) ?? 20;
+        return JSON.stringify(
+          await client.get(`groups/${gid}/search?scope=blobs&search=${q}&per_page=${perPage}`),
+          null, 2,
+        );
+      },
+    },
   ];
 }
