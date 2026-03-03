@@ -8,6 +8,9 @@ const EXAMPLE_PROMPTS = [
   'Show the last 5 failed pipelines',
   'Search for issues labeled "bug" in my project',
   'What CI/CD variables are set?',
+  'Find all repos in our group that use lodash',
+  'Show open MRs across the group that touch auth/',
+  'Who has the most open issues in our group?',
 ];
 
 interface Props {
