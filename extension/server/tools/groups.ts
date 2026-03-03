@@ -203,5 +203,57 @@ export function groupTools(client: GitLabClient): Tool[] {
         );
       },
     },
+    {
+      name: 'list_group_mr_changes',
+      description: 'List merge requests across a group, optionally filtered to only those touching files that match a path substring (e.g. "auth/", ".env"). Returns matched file paths per MR. Use this to find which MRs are relevant to a specific area of the codebase.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          group_id: { type: 'string' },
+          path_pattern: { type: 'string', description: 'Optional substring to filter changed file paths (e.g. "auth/")' },
+          state: { type: 'string', enum: ['opened', 'closed', 'merged', 'all'], default: 'opened' },
+          per_page: { type: 'integer', default: 20 },
+        },
+        required: ['group_id'],
+      }),
+      async execute(args) {
+        const gid = enc(args.group_id as string);
+        const state = (args.state as string) ?? 'opened';
+        const perPage = (args.per_page as number) ?? 20;
+        const pathPattern = (args.path_pattern as string) ?? '';
+
+        const mrs = await client.get(
+          `groups/${gid}/merge_requests?state=${state}&per_page=${perPage}`,
+        ) as { id: number; iid: number; project_id: number; title: string; web_url: string; author: { username: string } }[];
+
+        let skipped = 0;
+        const results = await Promise.all(
+          mrs.map(async (mr) => {
+            try {
+              const data = await client.get(
+                `projects/${mr.project_id}/merge_requests/${mr.iid}/changes`,
+              ) as { changes?: { old_path: string; new_path: string }[] };
+              const changes = data.changes ?? [];
+              const matched = matchesPaths(changes, pathPattern);
+              if (pathPattern && matched.length === 0) return null;
+              return {
+                project_id: mr.project_id,
+                mr_iid: mr.iid,
+                title: mr.title,
+                author: mr.author?.username,
+                web_url: mr.web_url,
+                matched_files: matched,
+              };
+            } catch {
+              skipped++;
+              return null;
+            }
+          }),
+        );
+
+        const filtered = results.filter(Boolean);
+        return JSON.stringify({ skipped, results: filtered }, null, 2);
+      },
+    },
   ];
 }
