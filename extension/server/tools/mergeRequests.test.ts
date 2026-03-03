@@ -78,4 +78,21 @@ describe('update_mr tool', () => {
       }),
     );
   });
+
+  it('updates MR without optional metadata params', async () => {
+    const put = vi.fn().mockResolvedValue({ iid: 1 });
+    const tools = mergeRequestTools(makeClient(vi.fn(), put));
+    const tool = tools.find(t => t.name === 'update_mr')!;
+
+    await tool.execute({
+      project_id: 'mygroup/myproject',
+      mr_iid: 1,
+      title: 'New title',
+    });
+
+    const body = put.mock.calls[0][1];
+    expect(body.assignee_ids).toBeUndefined();
+    expect(body.labels).toBeUndefined();
+    expect(body.milestone_id).toBeUndefined();
+  });
 });

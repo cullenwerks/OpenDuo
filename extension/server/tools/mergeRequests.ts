@@ -77,7 +77,7 @@ export function mergeRequestTools(client: GitLabClient): Tool[] {
         const body: Record<string, unknown> = {};
         body.source_branch = args.source_branch;
         body.target_branch = args.target_branch;
-        body.title = args.title;
+        if (args.title) body.title = args.title;
         if (args.description) body.description = args.description;
         if (args.assignee_ids) body.assignee_ids = args.assignee_ids;
         if (args.labels) body.labels = args.labels;
@@ -115,7 +115,7 @@ export function mergeRequestTools(client: GitLabClient): Tool[] {
       async execute(args) {
         const pid = enc(args.project_id as string);
         const body: Record<string, unknown> = {};
-        body.title = args.title;
+        if (args.title) body.title = args.title;
         if (args.description) body.description = args.description;
         if (args.state_event) body.state_event = args.state_event;
         if (args.assignee_ids) body.assignee_ids = args.assignee_ids;

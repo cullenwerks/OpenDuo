@@ -82,7 +82,7 @@ describe('get_git_context tool', () => {
 
     const result = await tool.execute({});
     const parsed = JSON.parse(result);
-    expect(parsed.stagedDiff.length).toBeLessThanOrEqual(8200); // 8KB + "[truncated]"
+    expect(parsed.stagedDiff.length).toBeLessThanOrEqual(8192); // capped at MAX_DIFF_BYTES
     expect(parsed.stagedDiff).toContain('[truncated]');
   });
 
