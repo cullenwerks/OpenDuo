@@ -64,6 +64,7 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsLoading(true);
+    setToolCalls([]);
 
     try {
       const resp = await fetch(`${serverUrl}/chat`, {
@@ -156,6 +157,10 @@ export function useChat(serverUrl: string, getActiveFolder?: () => string | unde
           } else {
             const toolCallMatch = parseToolCallToken(data);
             if (toolCallMatch) {
+              // Mark previous running tool call as done before adding new one
+              setToolCalls(prev => prev.map(tc =>
+                tc.status === 'running' ? { ...tc, status: 'done', endTime: Date.now() } : tc
+              ));
               const entry: ToolCallEntry = {
                 id: crypto.randomUUID(),
                 name: toolCallMatch.name,

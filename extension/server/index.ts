@@ -304,44 +304,58 @@ const server = http.createServer(async (req, res) => {
     try {
       await withTimeout(previousLock, LOCK_TIMEOUT_MS, 'Chat lock wait');
 
-      const reactLoop = new ReactLoop(15, config.gitlabUrl, confirmations);
-      const histCopy = [...history];
+      const emitToken = (token: string) => {
+        const lines = token.split('\n');
+        const ssePayload = lines.map(l => `data: ${l}`).join('\n');
+        safeWrite(res, `${ssePayload}\n\n`);
+      };
 
       try {
-        serverLog('DEBUG', 'Starting ReactLoop...');
-        await reactLoop.run(
-          message,
-          histCopy,
-          provider,
-          tools,
-          (token) => {
-            const lines = token.split('\n');
-            const ssePayload = lines.map(l => `data: ${l}`).join('\n');
-            safeWrite(res, `${ssePayload}\n\n`);
-          },
-          abortController.signal,
-        );
-        serverLog('DEBUG', 'ReactLoop completed');
-
-        if (histCopy.length > 51) {
-          const system = histCopy[0];
-          history = [system, ...histCopy.slice(histCopy.length - 50)];
+        if (config.chatProvider === 'graphql') {
+          // GraphQL provider: GitLab's backend runs its own agent loop.
+          // Stream the response directly without ReactLoop.
+          serverLog('DEBUG', 'Starting direct graphql stream...');
+          const msgs: ChatMessage[] = [{ role: 'user', content: message }];
+          for await (const event of provider.chatStream(msgs, [])) {
+            if (abortController.signal.aborted) {
+              throw new Error('Chat request aborted');
+            }
+            if (event.type === 'token') emitToken(event.token);
+            if (event.type === 'done') break;
+          }
+          serverLog('DEBUG', 'GraphQL stream completed');
         } else {
-          history = histCopy;
+          // REST provider: OpenDuo manages its own ReactLoop with custom tools.
+          const reactLoop = new ReactLoop(15, config.gitlabUrl, confirmations);
+          const histCopy = [...history];
+
+          serverLog('DEBUG', 'Starting ReactLoop...');
+          await reactLoop.run(
+            message,
+            histCopy,
+            provider,
+            tools,
+            emitToken,
+            abortController.signal,
+          );
+          serverLog('DEBUG', 'ReactLoop completed');
+
+          if (histCopy.length > 51) {
+            const system = histCopy[0];
+            history = [system, ...histCopy.slice(histCopy.length - 50)];
+          } else {
+            history = histCopy;
+          }
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== 'Chat request aborted') {
-          // Log the full cause chain so the real error is visible in
-          // diagnostics (e.g. "fetch failed" → ECONNREFUSED / cert error).
           const fullCause = unwrapCauseChain(e);
-          serverLog('ERROR', `ReactLoop error: ${msg}`, e instanceof Error ? e.stack : '');
+          serverLog('ERROR', `Chat error: ${msg}`, e instanceof Error ? e.stack : '');
           if (fullCause !== msg) {
-            serverLog('ERROR', `ReactLoop root cause: ${fullCause}`);
+            serverLog('ERROR', `Chat root cause: ${fullCause}`);
           }
-          debugLogError('ReactLoop', e);
-          // Send the full cause chain to the user so they see actionable
-          // details instead of just "fetch failed".
+          debugLogError('Chat', e);
           const userMsg = fullCause !== msg ? `${msg} — root cause: ${fullCause}` : msg;
           const safeMsg = userMsg.replace(/\n/g, ' ');
           safeWrite(res, `data: [ERROR] ${safeMsg}\n\n`);

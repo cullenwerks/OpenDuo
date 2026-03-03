@@ -34,6 +34,13 @@ function renderMarkdown(text: string): string {
     /\[Calling (\w[\w.]*)\.\.\.\]/g,
     (_match, name) => `<div class="tool-call">[Calling ${sanitizeHtml(name)}...]</div>`,
   );
+
+  // Also style GitLab Duo's native agent "Action:" format so backend
+  // tool actions render in styled boxes instead of plain text.
+  html = html.replace(
+    /Action:\s*([\w_]+)/g,
+    (_match, name) => `<div class="tool-call">Action: ${sanitizeHtml(name)}</div>`,
+  );
   return html;
 }
 
