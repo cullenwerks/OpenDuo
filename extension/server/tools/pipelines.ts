@@ -171,5 +171,29 @@ export function pipelineTools(client: GitLabClient): Tool[] {
         return client.getRaw(client.apiUrl(`projects/${pid}/jobs/${args.job_id}/trace`));
       },
     },
+    {
+      name: 'get_job_log_errors',
+      description:
+        'Get the relevant error/failure section of a CI job log. Strips ANSI codes, ' +
+        'finds lines matching error patterns, returns them with context. Much smaller ' +
+        'than get_job_log — use this for pipeline debugging.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          project_id: { type: 'string' },
+          job_id: { type: 'integer' },
+          max_lines: { type: 'integer', default: 150, description: 'Max lines to return' },
+          context_lines: { type: 'integer', default: 5, description: 'Lines of context around each error' },
+        },
+        required: ['project_id', 'job_id'],
+      }),
+      async execute(args) {
+        const pid = enc(args.project_id as string);
+        const maxLines = (args.max_lines as number) ?? 150;
+        const contextLines = (args.context_lines as number) ?? 5;
+        const raw = await client.getRaw(client.apiUrl(`projects/${pid}/jobs/${args.job_id}/trace`));
+        return extractLogErrors(raw, maxLines, contextLines);
+      },
+    },
   ];
 }
