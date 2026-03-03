@@ -5,6 +5,46 @@ function enc(s: string): string {
   return encodeURIComponent(s);
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
+const ERROR_RE = /ERROR|FAILED|error:|fatal:|FATAL|assert|Traceback|npm ERR!|exit code [^0]/;
+
+export function extractLogErrors(rawLog: string, maxLines: number, contextLines: number): string {
+  const clean = rawLog.replace(ANSI_RE, "");
+  const lines = clean.split("\n");
+  const total = lines.length;
+
+  // Find all lines matching error patterns
+  const errorIndexes: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (ERROR_RE.test(lines[i])) errorIndexes.push(i);
+  }
+
+  let selectedLines: string[];
+
+  if (errorIndexes.length === 0) {
+    // Fallback: last max_lines lines
+    selectedLines = lines.slice(Math.max(0, total - maxLines));
+  } else {
+    // Build merged context windows
+    const included = new Set<number>();
+    for (const idx of errorIndexes) {
+      const start = Math.max(0, idx - contextLines);
+      const end = Math.min(total - 1, idx + contextLines);
+      for (let i = start; i <= end; i++) included.add(i);
+    }
+    const sortedIndexes = Array.from(included).sort((a, b) => a - b);
+    selectedLines = sortedIndexes.map(i => lines[i]);
+  }
+
+  // Truncate to max_lines
+  if (selectedLines.length > maxLines) {
+    selectedLines = selectedLines.slice(selectedLines.length - maxLines);
+  }
+
+  const header = `[Extracted ${errorIndexes.length} error lines from ${total} total.]`;
+  return [header, ...selectedLines].join("\n");
+}
+
 export function pipelineTools(client: GitLabClient): Tool[] {
   return [
     {
