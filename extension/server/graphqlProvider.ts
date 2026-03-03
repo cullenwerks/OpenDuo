@@ -3,7 +3,6 @@ import { privateTokenHeaders } from './auth';
 import { classifyError, formatCauseChain, unwrapCauseChain, type Config, type DebugFlags } from './config';
 import type { LlmProvider } from './provider';
 import type { ChatMessage, ModelResponse } from './types';
-import { flattenMessages } from './prompt';
 import { randomUUID } from 'crypto';
 import { extractProjectPath } from './gitRemote';
 
@@ -56,9 +55,13 @@ export class GraphQLProvider implements LlmProvider {
     log('userGid resolved:', userGid);
     await this.resolveProjectContext();
 
-    // Flatten the full conversation (system prompt + history + tool results)
-    // into a single content string so the LLM sees the complete context.
-    const content = flattenMessages(messages);
+    // For the GraphQL provider, send only the user's latest message.
+    // GitLab's backend manages its own conversation context and agent loop;
+    // sending the full flattened history (with OpenDuo's system prompt)
+    // causes the backend's agent to use its native tool format instead of
+    // our <tool_call> XML, and can also trigger entitlement issues.
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+    const content = lastUserMsg?.content ?? '';
 
     const clientSubId = randomUUID();
     log('clientSubId:', clientSubId);
@@ -249,11 +252,6 @@ export class GraphQLProvider implements LlmProvider {
       platformOrigin: 'vs_code_extension',
     };
 
-    if (this.projectContext) {
-      chatInput.namespaceId = this.projectContext.namespaceGid;
-      input.rootNamespaceId = this.projectContext.namespaceGid;
-      input.projectId = this.projectContext.projectGid;
-    }
 
     const variables = { input };
     const url = `${this.baseUrl}/api/graphql`;
@@ -408,7 +406,7 @@ async function* readSubscriptionEvents(
   // "done" frame.  ActionCable pings arrive every ~3s and keep the
   // WebSocket alive, so the generic stall timer never fires.
   let lastContentTime = 0;
-  const CONTENT_IDLE_MS = 10_000; // 10s of no content after tokens → done
+  const CONTENT_IDLE_MS = 30_000; // 30s — backend agent needs time for tool execution
 
   // Convert WebSocket events to an async iterable
   const messages = wsToAsyncIterable(ws);

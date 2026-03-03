@@ -18,7 +18,7 @@ export const ChatApp: React.FC = () => {
   activeFolderRef.current = activeFolder;
   const getActiveFolder = useCallback(() => activeFolderRef.current, []);
 
-  const { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand } = useChat(SERVER_URL, getActiveFolder);
+  const { messages, isLoading, sendMessage, cancelRequest, resetChat, pendingConfirmation, confirmCommand, toolCalls } = useChat(SERVER_URL, getActiveFolder);
 
   // Fetch workspace folders whenever the server becomes reachable.
   // Re-running on `connected` means we pick up changes when the server
@@ -73,6 +73,7 @@ export const ChatApp: React.FC = () => {
         onExampleClick={(text) => sendMessage(text)}
         pendingConfirmation={pendingConfirmation}
         onConfirm={confirmCommand}
+        toolCalls={toolCalls}
       />
       <InputBar
         onSend={(text) => sendMessage(text)}

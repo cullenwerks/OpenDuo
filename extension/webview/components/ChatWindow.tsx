@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
-import type { ChatMessage, PendingConfirmation } from '../hooks/useChat';
+import { ToolStatusArea } from './ToolCallRow';
+import type { ChatMessage, PendingConfirmation, ToolCallEntry } from '../hooks/useChat';
 
 const EXAMPLE_PROMPTS = [
   'List my open merge requests',
@@ -15,9 +16,10 @@ interface Props {
   onExampleClick?: (text: string) => void;
   pendingConfirmation?: PendingConfirmation | null;
   onConfirm?: (id: string, approved: boolean) => void;
+  toolCalls?: ToolCallEntry[];
 }
 
-export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClick, pendingConfirmation, onConfirm }) => {
+export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClick, pendingConfirmation, onConfirm, toolCalls }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,6 +84,9 @@ export const ChatWindow: React.FC<Props> = ({ messages, isLoading, onExampleClic
         </div>
       )}
       {messages.map(msg => <MessageBubble key={msg.id} message={msg} />)}
+      {toolCalls && toolCalls.length > 0 && (
+        <ToolStatusArea toolCalls={toolCalls} />
+      )}
       {showThinking && (
         <div style={{
           display: 'flex',
