@@ -6,7 +6,7 @@ function enc(s: string): string {
 }
 
 const ANSI_RE = /\x1b\[[0-9;]*[mGKHF]/g;
-const ERROR_RE = /ERROR|FAILED|error:|fatal:|FATAL|assert|Traceback|npm ERR!|exit code [^0]/;
+const ERROR_RE = /ERROR|FAILED|[Ee]rror:|fatal:|FATAL|AssertionError|Traceback|npm ERR!|exit code [1-9]/;
 
 export function extractLogErrors(rawLog: string, maxLines: number, contextLines: number): string {
   const clean = rawLog.replace(ANSI_RE, "");
@@ -36,7 +36,7 @@ export function extractLogErrors(rawLog: string, maxLines: number, contextLines:
     selectedLines = sortedIndexes.map(i => lines[i]);
   }
 
-  // Truncate to max_lines
+  // Keep the trailing window — the end of a failed log is most diagnostic
   if (selectedLines.length > maxLines) {
     selectedLines = selectedLines.slice(selectedLines.length - maxLines);
   }
