@@ -255,5 +255,28 @@ export function groupTools(client: GitLabClient): Tool[] {
         return JSON.stringify({ skipped, results: filtered }, null, 2);
       },
     },
+    {
+      name: 'get_group_workload',
+      description: 'Summarize open issues per group member to identify who is overloaded. Returns a list sorted by issue count descending, including an unassigned bucket. Use this to answer "who has the most open issues?" across a group.',
+      parametersSchema: () => ({
+        type: 'object',
+        properties: {
+          group_id: { type: 'string' },
+        },
+        required: ['group_id'],
+      }),
+      async execute(args) {
+        const gid = enc(args.group_id as string);
+        const [issues, members] = await Promise.all([
+          client.get(`groups/${gid}/issues?state=opened&per_page=100`),
+          client.get(`groups/${gid}/members`),
+        ]);
+        const workload = aggregateWorkload(
+          issues as unknown[],
+          members as unknown[],
+        );
+        return JSON.stringify(workload, null, 2);
+      },
+    },
   ];
 }
