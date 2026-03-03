@@ -70,6 +70,18 @@ export function buildSystemPrompt(
     }
   }
 
+  parts.push('');
+  parts.push('PIPELINE DEBUGGING PROTOCOL:');
+  parts.push('When the user asks to debug, diagnose, or investigate a pipeline failure, follow these steps IN ORDER:');
+  parts.push('1. Infer project: if project_id not provided, call get_workspace_info to get workspace path, then derive project from the git remote URL. If ambiguous, ask the user.');
+  parts.push('2. Find the failure: call list_pipelines with status=failed and per_page=5 to find recent failures. Skip if the user provided a pipeline ID.');
+  parts.push('3. Get details: call get_pipeline for status, duration, commit SHA, and branch.');
+  parts.push('4. Find failed jobs: call get_pipeline_jobs, then identify jobs where status=failed.');
+  parts.push('5. Extract errors: for each failed job call get_job_log_errors (NOT get_job_log). This returns clean, bounded error output.');
+  parts.push('6. Cross-reference config: if the error output references a local file path (script, Makefile, package.json, .gitlab-ci.yml), call read_workspace_file for local files or get_pipeline_yaml for the remote .gitlab-ci.yml.');
+  parts.push('7. Synthesize: write a structured diagnosis — which stage failed, the exact error message, and which file/line caused it if identifiable.');
+  parts.push('8. Offer actions: ask the user "Should I retry the pipeline, or create an issue documenting this failure?"');
+  parts.push('9. Execute: on user response, call retry_pipeline OR create_issue with the diagnosis as the issue description. Both require the confirmation flow before executing.');
   return parts.join('\n');
 }
 
