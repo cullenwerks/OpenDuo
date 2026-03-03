@@ -5,6 +5,68 @@ function enc(s: string): string {
   return encodeURIComponent(s);
 }
 
+export type WorkloadEntry = {
+  username: string;
+  name: string;
+  open_issues: number;
+};
+
+/**
+ * Returns the file paths from an MR's changes array that match `pattern`.
+ * Checks both old_path and new_path. Returns [] when pattern is non-empty
+ * and nothing matches. When pattern is empty, returns the new_path of each
+ * change (deduplicated). Results are deduplicated across all entries.
+ */
+export function matchesPaths(
+  changes: { old_path: string; new_path: string }[],
+  pattern: string,
+): string[] {
+  if (!pattern) {
+    const seen = new Set<string>();
+    for (const c of changes) {
+      seen.add(c.new_path);
+    }
+    return Array.from(seen);
+  }
+  const seen = new Set<string>();
+  for (const c of changes) {
+    for (const p of [c.old_path, c.new_path]) {
+      if (p.includes(pattern)) seen.add(p);
+    }
+  }
+  return Array.from(seen);
+}
+
+/**
+ * Aggregates open issues by assignee. Members with zero issues are included.
+ * Issues with no assignee go into an 'unassigned' bucket.
+ * Result is sorted descending by open_issues.
+ */
+export function aggregateWorkload(
+  issues: unknown[],
+  members: unknown[],
+): WorkloadEntry[] {
+  const counts = new Map<string, WorkloadEntry>();
+
+  // Seed from members list
+  for (const m of members as { username: string; name: string }[]) {
+    counts.set(m.username, { username: m.username, name: m.name, open_issues: 0 });
+  }
+
+  // Count issues
+  for (const issue of issues as { assignee?: { username: string } | null }[]) {
+    const username = issue.assignee?.username ?? 'unassigned';
+    const entry = counts.get(username);
+    if (entry) {
+      entry.open_issues++;
+    } else {
+      counts.set(username, { username, name: username, open_issues: 1 });
+    }
+  }
+
+  return Array.from(counts.values()).sort((a, b) => b.open_issues - a.open_issues);
+}
+
 export function groupTools(client: GitLabClient): Tool[] {
   return [
     {
